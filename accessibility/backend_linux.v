@@ -123,7 +123,7 @@ fn (mut b LinuxAccessibilityBackend) post_notification(node_id int,
 }
 
 fn (mut b LinuxAccessibilityBackend) update_text_field(node_id int, value string,
-	selected_range Range, cursor_line int) {
+	selected_range Range, _cursor_line int) {
 	$if $pkgconfig('atk') {
 		b.ensure_init()
 

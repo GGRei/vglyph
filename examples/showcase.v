@@ -646,7 +646,7 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 	app.sections << section
 }
 
-fn (mut app ShowcaseApp) create_stroke_section(width f32) {
+fn (mut app ShowcaseApp) create_stroke_section(_width f32) {
 	mut section := ShowcaseSection{
 		title:       'Text Stroke'
 		description: 'Outlined and hollow text using FreeType Stroker.'
@@ -894,7 +894,7 @@ fn (mut app ShowcaseApp) create_rich_text_section(width f32) {
 	app.sections << section
 }
 
-fn (mut app ShowcaseApp) create_i18n_section(width f32) {
+fn (mut app ShowcaseApp) create_i18n_section(_width f32) {
 	// =========================================================================
 	// Section 5: Internationalization
 	// =========================================================================
@@ -1271,7 +1271,7 @@ fn (mut app ShowcaseApp) create_direct_api_section(width f32) {
 	app.sections << section
 }
 
-fn (mut app ShowcaseApp) create_rotation_section(width f32) {
+fn (mut app ShowcaseApp) create_rotation_section(_width f32) {
 	// =========================================================================
 	// Section: Vertical Text
 	// =========================================================================
