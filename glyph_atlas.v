@@ -413,7 +413,7 @@ fn (mut renderer Renderer) load_stroked_glyph(cfg LoadGlyphConfig,
 	}
 
 	// Cast to BitmapGlyph
-	bmp_glyph := &C.FT_BitmapGlyphRec(ft_glyph)
+	bmp_glyph := unsafe { &C.FT_BitmapGlyphRec(ft_glyph) }
 	ft_bitmap := &bmp_glyph.bitmap
 
 	if ft_bitmap.buffer == 0 || ft_bitmap.width == 0 || ft_bitmap.rows == 0 {
