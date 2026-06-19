@@ -325,7 +325,8 @@ fn (mut renderer Renderer) load_glyph(cfg LoadGlyphConfig) !CachedGlyph {
 			// - Resets glyph slot to fresh state
 			// - Produces bitmap directly (no translate/render step needed)
 			// - Same validity requirements as normal load: face + index valid
-			if C.FT_Load_Glyph(cfg.face, cfg.index, C.FT_LOAD_RENDER | C.FT_LOAD_COLOR | target_flag) != 0 {
+			if C.FT_Load_Glyph(cfg.face, cfg.index,
+				C.FT_LOAD_RENDER | C.FT_LOAD_COLOR | target_flag) != 0 {
 				return error('FT_Render_Glyph failed and fallback load failed')
 			}
 			// glyph now has bitmap directly via FT_LOAD_RENDER
@@ -414,7 +415,7 @@ fn (mut renderer Renderer) load_stroked_glyph(cfg LoadGlyphConfig,
 	}
 
 	// Cast to BitmapGlyph
-	bmp_glyph := &C.FT_BitmapGlyphRec(ft_glyph)
+	bmp_glyph := unsafe { &C.FT_BitmapGlyphRec(ft_glyph) }
 	ft_bitmap := &bmp_glyph.bitmap
 
 	if ft_bitmap.buffer == 0 || ft_bitmap.width == 0 || ft_bitmap.rows == 0 {
