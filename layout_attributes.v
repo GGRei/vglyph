@@ -115,8 +115,8 @@ fn apply_rich_text_style(mut ctx Context, list PangoAttrList, style TextStyle, s
 
 	// 2. Background Color
 	if style.bg_color.a > 0 {
-		mut attr := C.pango_attr_background_new(u16(style.bg_color.r) << 8, u16(style.bg_color.g) << 8,
-			u16(style.bg_color.b) << 8)
+		mut attr := C.pango_attr_background_new(u16(style.bg_color.r) << 8,
+			u16(style.bg_color.g) << 8, u16(style.bg_color.b) << 8)
 		attr.start_index = u32(start)
 		attr.end_index = u32(end)
 		C.pango_attr_list_insert(list.ptr, attr)

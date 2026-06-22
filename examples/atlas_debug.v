@@ -61,11 +61,13 @@ fn frame(mut app AppAtlasDebug) {
 			color:     gg.yellow
 		}
 	}
-	app.text_system.draw_text(50, 60, 'Using different sizes puts more glyphs in the atlas.',
-		cfg2) or { panic(err) }
+	app.text_system.draw_text(50, 60, 'Using different sizes puts more glyphs in the atlas.', cfg2) or {
+		panic(err)
+	}
 
-	app.text_system.draw_text(50, 110, 'Symbols: ∑∮∅≃⋘⌨☀☁☂☺₠₣₿₱',
-		cfg) or { panic(err) }
+	app.text_system.draw_text(50, 110, 'Symbols: ∑∮∅≃⋘⌨☀☁☂☺₠₣₿₱', cfg) or {
+		panic(err)
+	}
 
 	// 4. Add Emojis and Multi-language text
 	// Ensure you have fonts installed that cover these, e.g. Noto Color Emoji, Noto Sans CJK
@@ -92,8 +94,7 @@ fn frame(mut app AppAtlasDebug) {
 	atlas_w := f32(512) // Show it at half size (if 1024)
 	atlas_h := f32(512)
 
-	app.ctx.draw_rect_filled(atlas_x - 2, atlas_y - 2, atlas_w + 4, atlas_h + 4, gg.rgb(255,
-		0, 0)) // Red border
+	app.ctx.draw_rect_filled(atlas_x - 2, atlas_y - 2, atlas_w + 4, atlas_h + 4, gg.rgb(255, 0, 0)) // Red border
 	app.ctx.draw_rect_filled(atlas_x, atlas_y, atlas_w, atlas_h, gg.black) // Black background
 
 	// Draw the atlas texture
@@ -132,8 +133,8 @@ fn frame(mut app AppAtlasDebug) {
 		})
 
 		// Draw used boundary (bright green line)
-		app.ctx.draw_line(atlas_x + used_w, shelf_y, atlas_x + used_w, shelf_y + shelf_h,
-			gg.rgb(0, 255, 0))
+		app.ctx.draw_line(atlas_x + used_w, shelf_y, atlas_x + used_w, shelf_y + shelf_h, gg.rgb(0,
+			255, 0))
 	}
 
 	// Display utilization percentage
@@ -148,8 +149,7 @@ fn frame(mut app AppAtlasDebug) {
 		size:  14
 	})
 
-	app.ctx.draw_text(int(atlas_x), int(atlas_y - 20), 'Glyph Atlas Texture (Scaled 50%):',
-		gg.TextCfg{
+	app.ctx.draw_text(int(atlas_x), int(atlas_y - 20), 'Glyph Atlas Texture (Scaled 50%):', gg.TextCfg{
 		color: gg.white
 		size:  16
 	})

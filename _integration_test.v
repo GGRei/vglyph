@@ -138,6 +138,7 @@ fn test_hit_testing() {
 
 	// Byte index of second character 'ん' is 3
 	idx_n := utf8_layout.hit_test(utf8_layout.char_rects[1].rect.x + 1,
+
 		utf8_layout.char_rects[1].rect.y + 1)
 	assert idx_n == 3
 

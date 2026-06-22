@@ -270,8 +270,8 @@ fn build_layout_from_pango(layout PangoLayout, text string, scale_factor f32,
 
 	v_width, v_height = match cfg.orientation {
 		.horizontal {
-			compute_dimensions_horizontal(f32(ink_rect.width), f32(ink_rect.height), f32(pango_scale),
-				scale_factor)
+			compute_dimensions_horizontal(f32(ink_rect.width), f32(ink_rect.height),
+				f32(pango_scale), scale_factor)
 		}
 		.vertical {
 			compute_dimensions_vertical(l_height, f32(vertical_pen_y))

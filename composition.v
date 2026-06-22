@@ -298,6 +298,7 @@ pub fn (mut cs CompositionState) handle_clause(start int, length int, style int)
 		1 { ClauseStyle.converted }
 		else { ClauseStyle.raw }
 	}
+
 	cs.clauses << Clause{
 		start:  start
 		length: length

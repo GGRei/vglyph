@@ -139,8 +139,8 @@ fn frame(mut app GradientApp) {
 	}) or {}
 
 	// Wrapped text with gradient
-	app.ts.draw_text(30, 410, 'Gradient colors interpolate smoothly across the full layout width, spanning multiple lines of wrapped text.',
-		vglyph.TextConfig{
+	app.ts.draw_text(30, 410,
+		'Gradient colors interpolate smoothly across the full layout width, spanning multiple lines of wrapped text.', vglyph.TextConfig{
 		style:    vglyph.TextStyle{
 			font_name: 'Sans 22'
 		}

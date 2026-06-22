@@ -125,10 +125,10 @@ $if profile ? {
 		rate1 := m.glyph_cache_hit_rate()
 		rate2 := m.layout_cache_hit_rate()
 		util := m.atlas_utilization()
-		println('Glyph Cache: ${rate1:.1}% (${m.glyph_cache_hits}/${glyph_total}), ' +
-			'${m.glyph_cache_evictions} evictions')
-		println('Layout Cache: ${rate2:.1}% (${m.layout_cache_hits}/${layout_total}), ' +
-			'${m.layout_cache_evictions} evictions, size ${m.layout_cache_size}')
+		println(
+			'Glyph Cache: ${rate1:.1}% (${m.glyph_cache_hits}/${glyph_total}), ' + '${m.glyph_cache_evictions} evictions')
+		println(
+			'Layout Cache: ${rate2:.1}% (${m.layout_cache_hits}/${layout_total}), ' + '${m.layout_cache_evictions} evictions, size ${m.layout_cache_size}')
 		println('Atlas: ${m.atlas_page_count} pages, ${util:.1}% utilized ' +
 			'(${m.atlas_used_pixels}/${m.atlas_total_pixels} px)')
 		cur_kb := m.current_atlas_bytes / 1024

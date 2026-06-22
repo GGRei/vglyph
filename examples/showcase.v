@@ -216,8 +216,7 @@ fn (mut app ShowcaseApp) create_intro_section(width f32) {
 	}) or { panic(err) }
 
 	// Subtitle
-	section.layouts << app.ts.layout_text('High-performance, beautiful text rendering for V',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('High-performance, beautiful text rendering for V', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans Light 32'
 			color:     gg.Color{180, 180, 190, 255}
@@ -229,8 +228,7 @@ fn (mut app ShowcaseApp) create_intro_section(width f32) {
 	}) or { panic(err) }
 
 	// Features Description
-	section.layouts << app.ts.layout_text('Ligatures, Bidirectional Text, Emojis, Complex Scripts and more',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Ligatures, Bidirectional Text, Emojis, Complex Scripts and more', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 20'
 			color:     color_text_dim
@@ -406,8 +404,7 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 		}
 	}) or { panic(err) }
 
-	section.layouts << app.ts.layout_text('\tDiscretionary (Enabled): "strict effect"',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('\tDiscretionary (Enabled): "strict effect"', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Hoefler Text 24'
 			color:     color_text
@@ -422,8 +419,7 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 		}
 	}) or { panic(err) }
 
-	section.layouts << app.ts.layout_text('\tDiscretionary (Disabled): "strict effect"',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('\tDiscretionary (Disabled): "strict effect"', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Hoefler Text 24'
 			color:     color_text
@@ -445,8 +441,7 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 	// ---------------------------------------------------------------------
 	// Advanced Positioning (Scripting)
 	// ---------------------------------------------------------------------
-	section.layouts << app.ts.layout_text('✨ Subscripts & Superscripts (via OpenType)',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('✨ Subscripts & Superscripts (via OpenType)', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans Bold 20'
 			color:     gg.Color{200, 200, 255, 255}
@@ -539,8 +534,7 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 	// ---------------------------------------------------------------------
 	// Mixed Scripts
 	// ---------------------------------------------------------------------
-	section.layouts << app.ts.layout_text('\tMixed Scripts: Latin, Greek (Γειά σου), Cyrillic (Привет)',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('\tMixed Scripts: Latin, Greek (Γειά σου), Cyrillic (Привет)', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 24'
 			color:     color_text
@@ -726,8 +720,7 @@ fn (mut app ShowcaseApp) create_gradient_section(width f32) {
 	}) or { panic(err) }
 
 	// 4. Gradient on wrapped paragraph
-	section.layouts << app.ts.layout_text('Gradient colors interpolate smoothly across the full layout width, spanning multiple lines of wrapped text. This demonstrates how gradients work with paragraph layout.',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Gradient colors interpolate smoothly across the full layout width, spanning multiple lines of wrapped text. This demonstrates how gradients work with paragraph layout.', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 22'
 		}
@@ -1005,8 +998,7 @@ fn (mut app ShowcaseApp) create_advanced_section(width f32) {
 
 	// Example: Enabling discretionary ligatures (dlig) and oldstyle figures (onum)
 	// Note: This depends on the font having these features.
-	section.layouts << app.ts.layout_text('OpenType: 1234567890 (Oldstyle Figures enabled if supported)',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('OpenType: 1234567890 (Oldstyle Figures enabled if supported)', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Georgia 24'
 			color:     color_text
@@ -1025,8 +1017,7 @@ fn (mut app ShowcaseApp) create_advanced_section(width f32) {
 	}) or { panic(err) }
 
 	// Small Caps (smcp)
-	section.layouts << app.ts.layout_text('Small Caps: vglyph renders text beautifully.',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Small Caps: vglyph renders text beautifully.', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Hoefler Text 24'
 			color:     color_text
@@ -1041,8 +1032,7 @@ fn (mut app ShowcaseApp) create_advanced_section(width f32) {
 		}
 	}) or { panic(err) }
 
-	section.layouts << app.ts.layout_text('Notice how Old Style figures vary in height (like lowercase text), while standard "lining" figures are uniform height (like ALL CAPS).',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Notice how Old Style figures vary in height (like lowercase text), while standard "lining" figures are uniform height (like ALL CAPS).', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 18'
 			color:     gg.Color{180, 180, 180, 255}
@@ -1067,8 +1057,7 @@ fn (mut app ShowcaseApp) create_local_fonts_section(width f32) {
 	}
 
 	// Description
-	section.layouts << app.ts.layout_text('Custom fonts can be loaded at runtime. Here is "feathericon.ttf" loaded from assets:',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Custom fonts can be loaded at runtime. Here is "feathericon.ttf" loaded from assets:', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 18'
 			color:     color_text
@@ -1111,8 +1100,7 @@ fn (mut app ShowcaseApp) create_subpixel_section(width f32) {
 		description: 'Exploits LCD subpixel structure for sharper text rendering, combined with Subpixel Positioning for smooth animations.'
 	}
 
-	section.layouts << app.ts.layout_text('Standard engines snap to integers. VGlyph supports subpixel precision, enabling buttery smooth slow-motion:',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Standard engines snap to integers. VGlyph supports subpixel precision, enabling buttery smooth slow-motion:', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 18'
 			color:     color_text
@@ -1125,8 +1113,7 @@ fn (mut app ShowcaseApp) create_subpixel_section(width f32) {
 
 	// Layouts for animation
 	// 1. Smooth
-	section.layouts << app.ts.layout_text('Smooth Subpixel Motion (Float Positions)',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Smooth Subpixel Motion (Float Positions)', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 24'
 			color:     gg.Color{100, 255, 150, 255}
@@ -1187,8 +1174,7 @@ fn (mut app ShowcaseApp) create_direct_api_section(width f32) {
 	}
 
 	// Description
-	section.layouts << app.ts.layout_text('For many simple applications, you might not need the full power of layouts. VGlyph provides a direct API for rendering text strings with styles, similar to how you would use standard draw functions.',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('For many simple applications, you might not need the full power of layouts. VGlyph provides a direct API for rendering text strings with styles, similar to how you would use standard draw functions.', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 18'
 			color:     color_text
@@ -1292,8 +1278,7 @@ fn (mut app ShowcaseApp) create_rotation_section(_width f32) {
 	}) or { panic(err) }
 
 	// Description for vertical
-	section.layouts << app.ts.layout_text('Vertical text layout for CJK languages (Tategaki).',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Vertical text layout for CJK languages (Tategaki).', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 18'
 			color:     color_text_dim
@@ -1309,8 +1294,7 @@ fn (mut app ShowcaseApp) create_curved_text_section(width f32) {
 		title: 'Text on a Path'
 	}
 
-	section.layouts << app.ts.layout_text('Per-glyph placement along a circular arc using glyph_positions() and draw_layout_placed().',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Per-glyph placement along a circular arc using glyph_positions() and draw_layout_placed().', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 18'
 			color:     color_text_dim
@@ -1342,8 +1326,7 @@ fn (mut app ShowcaseApp) create_accessibility_section(width f32) {
 		description: 'Future support for screen readers and assistive technologies.'
 	}
 
-	section.layouts << app.ts.layout_text('Accessibility support is planned for VGlyph. The goal is to provide deep integration with platform APIs (such as NSAccessibility on macOS) to ensure that all rendered text is exposed to screen readers and navigation tools.',
-		vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('Accessibility support is planned for VGlyph. The goal is to provide deep integration with platform APIs (such as NSAccessibility on macOS) to ensure that all rendered text is exposed to screen readers and navigation tools.', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 18'
 			color:     color_text
@@ -1628,8 +1611,7 @@ fn (mut app ShowcaseApp) draw_interactive_demo(y f32) f32 {
 
 		rects := app.interactive_layout.get_selection_rects(start, end)
 		for r in rects {
-			app.ctx.draw_rect_filled(layout_padding_x + r.x, current_y + r.y, r.width,
-				r.height, gg.Color{50, 50, 200, 100})
+			app.ctx.draw_rect_filled(layout_padding_x + r.x, current_y + r.y, r.width, r.height, gg.Color{50, 50, 200, 100})
 		}
 	}
 

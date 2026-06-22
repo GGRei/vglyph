@@ -93,13 +93,7 @@ fn main() {
 			'  Triple-click: select paragraph\n\n' + 'Editing:\n' +
 			'  Backspace/Delete: delete char\n' + '  Cmd+Backspace: delete to line start\n' +
 			'  Option+Backspace: delete word\n' + '  Cmd+Z: undo, Cmd+Shift+Z: redo\n\n' +
-			'IME (dead keys):\n' + '  Option+` then e = è (e with grave)\n' +
-			'  Option+e then e = é (e with acute)\n\n' +
-			'Emoji Tests (cursor should skip whole cluster):\n' + '  Simple: ❤ ⭐ 🌈\n' +
-			'  Flag: 🇺🇸 🇯🇵\n' + '  Family: 👨‍👩‍👧\n' +
-			'  Skin tone: 👋🏽\n\n' +
-			'Lorem ipsum dolor sit amet, consectetur adipiscing elit.\n' +
-			'Sed do eiusmod tempor incididunt ut labore et dolore magna.'
+			'IME (dead keys):\n' + '  Option+` then e = è (e with grave)\n' + '  Option+e then e = é (e with acute)\n\n' + 'Emoji Tests (cursor should skip whole cluster):\n' + '  Simple: ❤ ⭐ 🌈\n' + '  Flag: 🇺🇸 🇯🇵\n' + '  Family: 👨‍👩‍👧\n' + '  Skin tone: 👋🏽\n\n' + 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.\n' + 'Sed do eiusmod tempor incididunt ut labore et dolore magna.'
 	}
 
 	state.gg_ctx = gg.new_context(
@@ -123,8 +117,8 @@ fn on_commit1(text string, data voidptr) {
 	anchor_before := state.anchor_idx
 	mut result := vglyph.MutationResult{}
 	if state.has_selection {
-		result = vglyph.insert_replacing_selection(state.text, state.cursor_idx, state.anchor_idx,
-			text)
+		result =
+			vglyph.insert_replacing_selection(state.text, state.cursor_idx, state.anchor_idx, text)
 	} else {
 		result = vglyph.insert_text(state.text, state.cursor_idx, text)
 	}
@@ -273,15 +267,17 @@ fn init(state_ptr voidptr) {
 
 	$if macos {
 		if state.use_global_ime {
-			vglyph.ime_register_callbacks(vglyph.ime_standard_marked_text, vglyph.ime_standard_insert_text,
-				vglyph.ime_standard_unmark_text, vglyph.ime_standard_bounds, state.handler1)
+			vglyph.ime_register_callbacks(vglyph.ime_standard_marked_text,
+				vglyph.ime_standard_insert_text, vglyph.ime_standard_unmark_text,
+				vglyph.ime_standard_bounds, state.handler1)
 			state.ime_initialized = true
 		}
 		// else: defer overlay creation to first frame (window not ready in init)
 	} $else {
 		state.use_global_ime = true
-		vglyph.ime_register_callbacks(vglyph.ime_standard_marked_text, vglyph.ime_standard_insert_text,
-			vglyph.ime_standard_unmark_text, vglyph.ime_standard_bounds, state.handler1)
+		vglyph.ime_register_callbacks(vglyph.ime_standard_marked_text,
+			vglyph.ime_standard_insert_text, vglyph.ime_standard_unmark_text,
+			vglyph.ime_standard_bounds, state.handler1)
 		state.ime_initialized = true
 	}
 
@@ -578,8 +574,8 @@ fn event(e &gg.Event, state_ptr voidptr) {
 					.c {
 						// Cmd+C: copy selection to clipboard
 						if state.has_selection {
-							state.clipboard = vglyph.get_selected_text(state.text, state.cursor_idx,
-								state.anchor_idx)
+							state.clipboard = vglyph.get_selected_text(state.text,
+								state.cursor_idx, state.anchor_idx)
 						}
 						state.skip_char_event = true
 						return
@@ -783,7 +779,8 @@ fn event(e &gg.Event, state_ptr voidptr) {
 							state.preferred_x = pos.x
 						}
 					}
-					state.cursor_idx = state.layout.move_cursor_up(state.cursor_idx, state.preferred_x)
+					state.cursor_idx = state.layout.move_cursor_up(state.cursor_idx,
+						state.preferred_x)
 				}
 				.down {
 					if state.preferred_x < 0 {
@@ -887,12 +884,12 @@ fn event(e &gg.Event, state_ptr voidptr) {
 							state.has_selection = false
 
 							// Track for undo (empty string since deletion)
-							state.undo_mgr.record_mutation(result, '', cursor_before,
-								anchor_before)
+							state.undo_mgr.record_mutation(result, '', cursor_before, anchor_before)
 						}
 					} else {
 						// Field 2: simple backspace
-						result := vglyph.delete_backward(state.text2, state.layout2, state.cursor_idx2)
+						result := vglyph.delete_backward(state.text2, state.layout2,
+							state.cursor_idx2)
 						if result.new_text != state.text2 {
 							new_layout := state.ts.layout_text(result.new_text, state.cfg2) or {
 								return
@@ -924,9 +921,11 @@ fn event(e &gg.Event, state_ptr voidptr) {
 						result = vglyph.delete_selection(state.text, state.cursor_idx,
 							state.anchor_idx)
 					} else if cmd_held {
-						result = vglyph.delete_to_line_end(state.text, state.layout, state.cursor_idx)
+						result = vglyph.delete_to_line_end(state.text, state.layout,
+							state.cursor_idx)
 					} else if opt_held {
-						result = vglyph.delete_to_word_end(state.text, state.layout, state.cursor_idx)
+						result = vglyph.delete_to_word_end(state.text, state.layout,
+							state.cursor_idx)
 					} else {
 						result = vglyph.delete_forward(state.text, state.layout, state.cursor_idx)
 					}
@@ -995,8 +994,7 @@ fn event(e &gg.Event, state_ptr voidptr) {
 					// Update text field and post notification
 					if state.a11y_enabled && state.a11y_node_id >= 0 {
 						line, _ := calc_line_col(state.layout, state.cursor_idx)
-						state.a11y_manager.update_text_field(state.a11y_node_id, state.text,
-							accessibility.Range{
+						state.a11y_manager.update_text_field(state.a11y_node_id, state.text, accessibility.Range{
 							location: state.cursor_idx
 							length:   0
 						}, line)
@@ -1209,19 +1207,22 @@ fn frame(state_ptr voidptr) {
 			if state.ime_overlay == unsafe { nil } {
 				eprintln('Warning: overlay creation failed, falling back to global')
 				state.use_global_ime = true
-				vglyph.ime_register_callbacks(vglyph.ime_standard_marked_text, vglyph.ime_standard_insert_text,
-					vglyph.ime_standard_unmark_text, vglyph.ime_standard_bounds, state.handler1)
-			} else {
-				vglyph.ime_overlay_register_callbacks(state.ime_overlay, vglyph.ime_standard_marked_text,
+				vglyph.ime_register_callbacks(vglyph.ime_standard_marked_text,
 					vglyph.ime_standard_insert_text, vglyph.ime_standard_unmark_text,
-					vglyph.ime_standard_bounds, vglyph.ime_standard_clause, vglyph.ime_standard_clauses_begin,
+					vglyph.ime_standard_bounds, state.handler1)
+			} else {
+				vglyph.ime_overlay_register_callbacks(state.ime_overlay,
+					vglyph.ime_standard_marked_text, vglyph.ime_standard_insert_text,
+					vglyph.ime_standard_unmark_text, vglyph.ime_standard_bounds,
+					vglyph.ime_standard_clause, vglyph.ime_standard_clauses_begin,
 					vglyph.ime_standard_clauses_end, state.handler1)
 				vglyph.ime_overlay_set_focused_field(state.ime_overlay, 'field1')
 				state.ime_overlay2 = vglyph.ime_overlay_create_auto(ns_window)
 				if state.ime_overlay2 != unsafe { nil } {
-					vglyph.ime_overlay_register_callbacks(state.ime_overlay2, vglyph.ime_standard_marked_text,
-						vglyph.ime_standard_insert_text, vglyph.ime_standard_unmark_text,
-						vglyph.ime_standard_bounds, vglyph.ime_standard_clause, vglyph.ime_standard_clauses_begin,
+					vglyph.ime_overlay_register_callbacks(state.ime_overlay2,
+						vglyph.ime_standard_marked_text, vglyph.ime_standard_insert_text,
+						vglyph.ime_standard_unmark_text, vglyph.ime_standard_bounds,
+						vglyph.ime_standard_clause, vglyph.ime_standard_clauses_begin,
 						vglyph.ime_standard_clauses_end, state.handler2)
 				}
 			}
@@ -1249,23 +1250,20 @@ fn frame(state_ptr voidptr) {
 
 		rects := state.layout.get_selection_rects(start, end)
 		for r in rects {
-			state.gg_ctx.draw_rect_filled(offset_x + r.x, offset_y + r.y, r.width, r.height,
-				gg.Color{50, 50, 200, 100})
+			state.gg_ctx.draw_rect_filled(offset_x + r.x, offset_y + r.y, r.width, r.height, gg.Color{50, 50, 200, 100})
 		}
 	}
 
 	// Render the text using the system
 	state.ts.draw_layout(state.layout, offset_x, offset_y)
 	if state.ts.composition.is_composing() && state.active_field == 1 {
-		state.ts.draw_composition(state.layout, offset_x, offset_y, &state.ts.composition,
-			gg.black)
+		state.ts.draw_composition(state.layout, offset_x, offset_y, &state.ts.composition, gg.black)
 	}
 
 	// Draw Cursor using get_cursor_pos API (visible during composition)
 	if state.active_field == 1 {
 		if pos := state.layout.get_cursor_pos(state.cursor_idx) {
-			state.gg_ctx.draw_rect_filled(offset_x + pos.x, offset_y + pos.y, 2, pos.height,
-				gg.red)
+			state.gg_ctx.draw_rect_filled(offset_x + pos.x, offset_y + pos.y, 2, pos.height, gg.red)
 		}
 	}
 
@@ -1286,15 +1284,13 @@ fn frame(state_ptr voidptr) {
 	// Draw field 2 text
 	state.ts.draw_layout(state.layout2, field2_x, field2_y)
 	if state.ts.composition.is_composing() && state.active_field == 2 {
-		state.ts.draw_composition(state.layout2, field2_x, field2_y, &state.ts.composition,
-			gg.Color{60, 60, 60, 255})
+		state.ts.draw_composition(state.layout2, field2_x, field2_y, &state.ts.composition, gg.Color{60, 60, 60, 255})
 	}
 
 	// Draw field 2 cursor
 	if state.active_field == 2 {
 		if pos := state.layout2.get_cursor_pos(state.cursor_idx2) {
-			state.gg_ctx.draw_rect_filled(field2_x + pos.x, field2_y + pos.y, 2, pos.height,
-				gg.red)
+			state.gg_ctx.draw_rect_filled(field2_x + pos.x, field2_y + pos.y, 2, pos.height, gg.red)
 		}
 	}
 

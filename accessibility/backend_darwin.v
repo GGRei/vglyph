@@ -74,8 +74,7 @@ fn (mut b DarwinAccessibilityBackend) update_tree(nodes map[int]AccessibilityNod
 				}
 			} else {
 				// Root's parent is Window
-				C.v_msgSend_void_id(elem, sel_register_name('setAccessibilityParent:'),
-					window)
+				C.v_msgSend_void_id(elem, sel_register_name('setAccessibilityParent:'), window)
 			}
 
 			// Set Children
@@ -97,8 +96,7 @@ fn (mut b DarwinAccessibilityBackend) update_tree(nodes map[int]AccessibilityNod
 			root_elem := b.elements[root_id]
 			root_array := ns_mutable_array_new()
 			ns_array_add_object(root_array, root_elem)
-			C.v_msgSend_void_id(window, sel_register_name('setAccessibilityChildren:'),
-				root_array)
+			C.v_msgSend_void_id(window, sel_register_name('setAccessibilityChildren:'), root_array)
 		}
 	}
 }
@@ -157,6 +155,7 @@ fn (mut b DarwinAccessibilityBackend) post_notification(node_id int,
 			.value_changed { 'NSAccessibilityValueChangedNotification' }
 			.selected_text_changed { 'NSAccessibilitySelectedTextChangedNotification' }
 		}
+
 		post_accessibility_notification(elem, name)
 	}
 }

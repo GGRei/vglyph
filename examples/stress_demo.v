@@ -91,8 +91,7 @@ fn frame(mut app AppStress) {
 	}) or {}
 
 	visible_rows := row_end - row_start
-	app.ts.draw_text(10, 40, 'Rows: ${visible_rows}/${rows} | Scroll: ${int(app.scroll_y)}',
-		vglyph.TextConfig{
+	app.ts.draw_text(10, 40, 'Rows: ${visible_rows}/${rows} | Scroll: ${int(app.scroll_y)}', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans 20'
 			color:     gg.blue

@@ -1130,9 +1130,10 @@ fn (mut renderer Renderer) draw_layout_impl(layout Layout, x f32, y f32,
 				line_w := f32(item.width)
 				line_h := f32(item.underline_thickness)
 
-				emit_decoration_quad(transform, x, y, line_x, line_y, line_w, line_h,
-					item.color, has_gradient && !item.use_original_color, gradient, grad_w,
-					grad_h, grad_x_off, grad_y_off)
+				emit_decoration_quad(transform, x, y, line_x, line_y, line_w, line_h, item.color,
+
+					has_gradient && !item.use_original_color, gradient, grad_w, grad_h, grad_x_off,
+					grad_y_off)
 			}
 
 			if item.has_strikethrough {
@@ -1141,9 +1142,10 @@ fn (mut renderer Renderer) draw_layout_impl(layout Layout, x f32, y f32,
 				line_w := f32(item.width)
 				line_h := f32(item.strikethrough_thickness)
 
-				emit_decoration_quad(transform, x, y, line_x, line_y, line_w, line_h,
-					item.color, has_gradient && !item.use_original_color, gradient, grad_w,
-					grad_h, grad_x_off, grad_y_off)
+				emit_decoration_quad(transform, x, y, line_x, line_y, line_w, line_h, item.color,
+
+					has_gradient && !item.use_original_color, gradient, grad_w, grad_h, grad_x_off,
+					grad_y_off)
 			}
 		}
 	}

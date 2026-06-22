@@ -147,8 +147,7 @@ fn frame(mut app AppSystemFonts) {
 
 		// Column 3: Sample Text in the requested font
 		// Ensure we don't crash if the font is totally bogus, Pango handles fallback.
-		app.text_sys.draw_text(x_col3, y, 'The quick brown fox jumps over the lazy dog.',
-			vglyph.TextConfig{
+		app.text_sys.draw_text(x_col3, y, 'The quick brown fox jumps over the lazy dog.', vglyph.TextConfig{
 			style: vglyph.TextStyle{
 				font_name: '${res.request} 14'
 				color:     smoke

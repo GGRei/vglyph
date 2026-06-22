@@ -81,8 +81,7 @@ fn frame(mut app AppStyleDemo) {
 	}) or { panic(err) }
 
 	// Combined
-	app.text_system.draw_text(50, 300, 'Combined: Red, BG Yellow, Underline, Strike',
-		vglyph.TextConfig{
+	app.text_system.draw_text(50, 300, 'Combined: Red, BG Yellow, Underline, Strike', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name:     'Sans 20'
 			color:         gg.red

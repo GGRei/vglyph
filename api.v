@@ -475,8 +475,8 @@ pub mut:
 // - handler: The StandardIMEHandler instance that manages callbacks.
 pub fn (mut ts TextSystem) register_ime_callbacks(handle voidptr, handler &StandardIMEHandler) {
 	ime_overlay_register_callbacks(handle, ime_standard_marked_text, ime_standard_insert_text,
-		ime_standard_unmark_text, ime_standard_bounds, ime_standard_clause, ime_standard_clauses_begin,
-		ime_standard_clauses_end, handler)
+		ime_standard_unmark_text, ime_standard_bounds, ime_standard_clause,
+		ime_standard_clauses_begin, ime_standard_clauses_end, handler)
 }
 
 // Static wrappers for IME bridge

@@ -64,6 +64,7 @@ fn frame(mut app App) {
 
 	if app.has_focus {
 		app.gg.draw_rect_empty(field_rect.x - 2, field_rect.y - 2, field_rect.width + 4,
+
 			field_rect.height + 4, gg.blue)
 	}
 
@@ -77,8 +78,7 @@ fn frame(mut app App) {
 	// Manual accessibility registration for the text field
 	mut am := app.ts.accessibility_manager()
 	field_id := am.create_text_field_node(field_rect)
-	am.update_text_field(field_id, app.field_value, accessibility.Range{0, app.field_value.len},
-		0)
+	am.update_text_field(field_id, app.field_value, accessibility.Range{0, app.field_value.len}, 0)
 
 	if app.has_focus {
 		am.set_focus(field_id)

@@ -97,6 +97,7 @@ pub fn (mut ann AccessibilityAnnouncer) announce_character(ch rune) string {
 			}
 		}
 	}
+
 	ann.log_announcement(message)
 	return message
 }
@@ -121,6 +122,7 @@ pub fn (mut ann AccessibilityAnnouncer) announce_line_boundary(boundary LineBoun
 		.beginning { 'beginning of line' }
 		.end { 'end of line' }
 	}
+
 	ann.log_announcement(message)
 	return message
 }
@@ -148,6 +150,7 @@ pub fn (mut ann AccessibilityAnnouncer) announce_document_boundary(boundary DocB
 		.beginning { 'beginning of document' }
 		.end { 'end of document' }
 	}
+
 	ann.log_announcement(message)
 	return message
 }
@@ -203,6 +206,7 @@ pub fn (mut ann AccessibilityAnnouncer) announce_dead_key(dead_key rune) string 
 		`,` { 'cedilla' }
 		else { 'dead key' }
 	}
+
 	ann.log_announcement(message)
 	return message
 }

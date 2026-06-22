@@ -39,6 +39,7 @@ fn setup_pango_layout(mut ctx Context, text string, cfg TextConfig) !PangoLayout
 			.char { PangoWrapMode.pango_wrap_char }
 			.word_char { PangoWrapMode.pango_wrap_word_char }
 		}
+
 		layout.set_wrap(pango_wrap)
 	}
 	pango_align := match cfg.block.align {
@@ -46,6 +47,7 @@ fn setup_pango_layout(mut ctx Context, text string, cfg TextConfig) !PangoLayout
 		.center { PangoAlignment.pango_align_center }
 		.right { PangoAlignment.pango_align_right }
 	}
+
 	layout.set_alignment(pango_align)
 	if cfg.block.indent != 0 {
 		// Apply DPI scaling to indent

@@ -135,6 +135,7 @@ fn (mut b LinuxAccessibilityBackend) update_text_field(node_id int, value string
 
 			C.vglyph_accessible_set_text_value(elem, value.str)
 			C.vglyph_accessible_set_selection(elem, selected_range.location,
+
 				selected_range.location + selected_range.length)
 			C.vglyph_accessible_set_cursor_pos(elem, selected_range.location)
 		}
