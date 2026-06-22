@@ -39,7 +39,7 @@ fn init(mut app App) {
 	app.ts.enable_accessibility(true)
 }
 
-fn keydown(key gg.KeyCode, mod gg.Modifier, mut app App) {
+fn keydown(key gg.KeyCode, _mod gg.Modifier, mut app App) {
 	if key == .tab {
 		app.has_focus = !app.has_focus
 		println('Focus changed: ${app.has_focus}')

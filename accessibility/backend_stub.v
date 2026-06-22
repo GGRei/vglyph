@@ -5,21 +5,21 @@ module accessibility
 // when no platform backend matches.
 struct StubAccessibilityBackend {}
 
-fn (mut b StubAccessibilityBackend) update_tree(nodes map[int]AccessibilityNode, root_id int) {
+fn (mut b StubAccessibilityBackend) update_tree(_nodes map[int]AccessibilityNode, _root_id int) {
 	// Do nothing on unsupported platforms.
 }
 
-fn (mut b StubAccessibilityBackend) set_focus(node_id int) {
+fn (mut b StubAccessibilityBackend) set_focus(_node_id int) {
 	// Do nothing
 }
 
-fn (mut b StubAccessibilityBackend) post_notification(node_id int,
-	notification AccessibilityNotification) {
+fn (mut b StubAccessibilityBackend) post_notification(_node_id int,
+	_notification AccessibilityNotification) {
 	// Do nothing
 }
 
-fn (mut b StubAccessibilityBackend) update_text_field(node_id int, value string,
-	selected_range Range, cursor_line int) {
+fn (mut b StubAccessibilityBackend) update_text_field(_node_id int, _value string,
+	_selected_range Range, _cursor_line int) {
 	// Do nothing
 }
 

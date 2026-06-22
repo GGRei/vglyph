@@ -365,7 +365,7 @@ fn (mut renderer Renderer) load_glyph(cfg LoadGlyphConfig) !CachedGlyph {
 // - FT_Get_Glyph / FT_Glyph_Stroke / FT_Glyph_To_Bitmap fails
 // - bitmap conversion or atlas insertion fails
 fn (mut renderer Renderer) load_stroked_glyph(cfg LoadGlyphConfig,
-	stroke_radius i64) !CachedGlyph {
+	_stroke_radius i64) !CachedGlyph {
 	$if profile ? {
 		start := time.sys_mono_now()
 		defer {
