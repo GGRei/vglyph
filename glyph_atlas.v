@@ -293,12 +293,11 @@ fn (mut renderer Renderer) load_glyph(cfg LoadGlyphConfig) !CachedGlyph {
 		// State: outline loaded (NO_BITMAP flag used, no FT_LOAD_RENDER)
 		// Requires: glyph.outline valid with n_points > 0
 		// Produces: outline shifted by subpixel amount
-		$if debug {
-			if glyph.outline.n_points == 0 {
-				panic('FT_Outline_Translate requires loaded outline, got empty. Check FT_Load_Glyph flags.')
-			}
+		// Whitespace glyphs (e.g. space) legitimately have an empty outline;
+		// skip the translate instead of panicking.
+		if glyph.outline.n_points > 0 {
+			C.FT_Outline_Translate(&glyph.outline, shift, 0)
 		}
-		C.FT_Outline_Translate(&glyph.outline, shift, 0)
 
 		// Now Render
 		render_mode := if is_high_dpi {
@@ -414,7 +413,7 @@ fn (mut renderer Renderer) load_stroked_glyph(cfg LoadGlyphConfig,
 	}
 
 	// Cast to BitmapGlyph
-	bmp_glyph := &C.FT_BitmapGlyphRec(ft_glyph)
+	bmp_glyph := unsafe { &C.FT_BitmapGlyphRec(ft_glyph) }
 	ft_bitmap := &bmp_glyph.bitmap
 
 	if ft_bitmap.buffer == 0 || ft_bitmap.width == 0 || ft_bitmap.rows == 0 {
