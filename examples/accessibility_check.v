@@ -3,7 +3,7 @@
 module main
 
 import vglyph
-import vglyph.accessibility
+import accessibility
 import gg
 
 const window_width = 800
