@@ -5,7 +5,7 @@
 // - Layout (wrapping, alignment, hanging indents)
 // - Rich text and markup
 // - Internationalization (complex scripts, emoji)
-// - OpenType features (variable fonts, subscripts)
+// - OpenType features and baseline rise (variable fonts, subscripts)
 // - Gradient text (horizontal and vertical)
 // - Text on a path (curved/arc placement)
 // - Subpixel rendering and hit testing
@@ -249,7 +249,7 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 	// =========================================================================
 	mut section := ShowcaseSection{
 		title:       'Typography Essentials'
-		description: 'Full control over font families, weights, and styles.'
+		description: 'Full control over font families, weights, styles, and baseline rise.'
 	}
 
 	// Font Families
@@ -441,7 +441,7 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 	// ---------------------------------------------------------------------
 	// Advanced Positioning (Scripting)
 	// ---------------------------------------------------------------------
-	section.layouts << app.ts.layout_text('✨ Subscripts & Superscripts (via OpenType)', vglyph.TextConfig{
+	section.layouts << app.ts.layout_text('✨ Subscripts & Superscripts (rise + OpenType)', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans Bold 20'
 			color:     gg.Color{200, 200, 255, 255}
@@ -464,6 +464,8 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 		style: vglyph.TextStyle{
 			font_name: 'Sans 24'
 			color:     color_text
+			size:      24
+			rise:      -4
 			features:  &vglyph.FontFeatures{
 				opentype_features: [
 					vglyph.FontFeature{
@@ -487,6 +489,8 @@ fn (mut app ShowcaseApp) create_typography_section(width f32) {
 		style: vglyph.TextStyle{
 			font_name: 'Sans 24'
 			color:     color_text
+			size:      23
+			rise:      5
 			features:  &vglyph.FontFeatures{
 				opentype_features: [
 					vglyph.FontFeature{

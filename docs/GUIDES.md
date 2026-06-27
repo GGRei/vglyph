@@ -129,6 +129,31 @@ to physical device pixels automatically.
 
 ## Advanced Typography
 
+### Baseline Rise
+
+Use `TextStyle.rise` to shift a plain or rich-text run above or below the line
+baseline without changing the underlying text. Positive values move text up;
+negative values move it down. For superscripts and subscripts, combine `rise`
+with a smaller `size`; OpenType `sups`/`subs` can still be enabled as an
+optional glyph-substitution enhancement when the font supports it. In rich text,
+the run's `style.rise` is added to the base `TextConfig.style.rise`, so a base
+rise and a run-specific rise are cumulative.
+
+```okfmt
+rt := vglyph.RichText{
+    runs: [
+        vglyph.StyleRun{ text: 'E = mc' },
+        vglyph.StyleRun{
+            text: '2'
+            style: vglyph.TextStyle{
+                size: 14
+                rise: 8
+            }
+        },
+    ]
+}
+```
+
 ### Tab Stops
 
 By default, tab characters (`\t`) advance to the next 8-space multiple. You can

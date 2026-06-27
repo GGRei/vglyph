@@ -270,6 +270,7 @@ pub type GCallback = fn ()
 
 fn C.g_object_unref(obj voidptr)
 fn C.g_object_ref(obj voidptr) voidptr
+fn C.g_slist_free(list &C.GSList)
 
 // Pango Types
 @[typedef]
@@ -382,6 +383,9 @@ pub struct C.PangoFont {}
 
 @[typedef]
 pub struct C.PangoLayoutIter {}
+
+@[typedef]
+pub struct C.PangoAttrIterator {}
 
 @[typedef]
 pub struct C.PangoLayoutLine {
@@ -507,9 +511,10 @@ pub enum PangoAttrType {
 	pango_attr_background     = 10
 	pango_attr_underline      = 11
 	pango_attr_strikethrough  = 12
-	pango_attr_letter_spacing = 13
+	pango_attr_rise           = 13
 	pango_attr_shape          = 14
-	pango_attr_font_features  = 25
+	pango_attr_letter_spacing = 17
+	pango_attr_font_features  = 23
 }
 
 pub enum PangoUnderline {
@@ -588,6 +593,7 @@ fn C.pango_layout_set_text(&C.PangoLayout, &char, int)
 fn C.pango_layout_set_markup(&C.PangoLayout, &char, int)
 fn C.pango_layout_set_font_description(&C.PangoLayout, &C.PangoFontDescription)
 fn C.pango_layout_get_iter(&C.PangoLayout) &C.PangoLayoutIter
+fn C.pango_layout_get_text(&C.PangoLayout) &char
 fn C.pango_layout_get_font_description(&C.PangoLayout) &C.PangoFontDescription
 fn C.pango_layout_get_extents(&C.PangoLayout, &C.PangoRectangle, &C.PangoRectangle)
 fn C.pango_layout_index_to_pos(&C.PangoLayout, int, &C.PangoRectangle)
@@ -700,13 +706,21 @@ fn C.pango_attr_list_insert(&C.PangoAttrList, &C.PangoAttribute)
 fn C.pango_layout_set_attributes(&C.PangoLayout, &C.PangoAttrList)
 fn C.pango_layout_get_attributes(&C.PangoLayout) &C.PangoAttrList
 fn C.pango_layout_get_line_count(&C.PangoLayout) int
+fn C.pango_attr_list_get_iterator(&C.PangoAttrList) &C.PangoAttrIterator
+fn C.pango_attr_iterator_range(&C.PangoAttrIterator, &int, &int)
+fn C.pango_attr_iterator_next(&C.PangoAttrIterator) bool
+fn C.pango_attr_iterator_destroy(&C.PangoAttrIterator)
+fn C.pango_attr_iterator_get_attrs(&C.PangoAttrIterator) &C.GSList
 
 // Pango Attribute Constructors
 fn C.pango_attr_list_copy(&C.PangoAttrList) &C.PangoAttrList
+fn C.pango_attribute_copy(&C.PangoAttribute) &C.PangoAttribute
+fn C.pango_attribute_destroy(&C.PangoAttribute)
 fn C.pango_attr_foreground_new(u16, u16, u16) &C.PangoAttribute
 fn C.pango_attr_background_new(u16, u16, u16) &C.PangoAttribute
 fn C.pango_attr_underline_new(PangoUnderline) &C.PangoAttribute
 fn C.pango_attr_strikethrough_new(bool) &C.PangoAttribute
+fn C.pango_attr_rise_new(int) &C.PangoAttribute
 fn C.pango_attr_font_features_new(&char) &C.PangoAttribute
 fn C.pango_attr_font_desc_new(&C.PangoFontDescription) &C.PangoAttribute
 fn C.pango_attr_letter_spacing_new(int) &C.PangoAttribute

@@ -274,6 +274,7 @@ pub:
 	underline      bool
 	strikethrough  bool
 	letter_spacing f32 // Extra spacing between characters (points)
+	rise           f32 // Baseline shift in logical pixels; positive moves text up, negative moves it down
 
 	// Stroke (outline)
 	stroke_width f32 // Width in points (0 = no stroke)
