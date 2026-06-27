@@ -119,6 +119,35 @@ fn test_get_cache_key_diff_typeface() {
 	assert key1 != key2
 }
 
+fn test_get_cache_key_diff_rise() {
+	mut ctx := new_context(1.0)!
+	defer { ctx.free() }
+	mut ts := TextSystem{
+		ctx:             ctx
+		renderer:        unsafe { nil }
+		font_hash_cache: map[string]u64{}
+		am:              unsafe { nil }
+	}
+
+	cfg1 := TextConfig{
+		style: TextStyle{
+			font_name: 'Arial 12'
+		}
+	}
+
+	cfg2 := TextConfig{
+		style: TextStyle{
+			font_name: 'Arial 12'
+			rise:      4
+		}
+	}
+
+	key1 := ts.get_cache_key('hello', cfg1)
+	key2 := ts.get_cache_key('hello', cfg2)
+
+	assert key1 != key2
+}
+
 // ============================================================================
 // API-level validation integration tests (SEC-01, SEC-02, SEC-03)
 // ============================================================================
