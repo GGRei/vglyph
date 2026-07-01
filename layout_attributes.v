@@ -40,6 +40,7 @@ pub mut:
 	has_strikethrough bool
 	is_object         bool
 	object_id         string
+	rise              int
 }
 
 // parse_run_attributes extracts visual properties (color, decorations)
@@ -85,6 +86,10 @@ fn parse_run_attributes(pango_item &C.PangoItem) RunAttributes {
 				if int_attr.value != 0 {
 					attrs.has_strikethrough = true
 				}
+			} else if attr_type == .pango_attr_rise {
+				int_attr := &C.PangoAttrInt(attr)
+				// Pango can expose multiple active rise attributes for a run.
+				attrs.rise += int_attr.value
 			} else if attr_type == .pango_attr_shape {
 				shape_attr := &C.PangoAttrShape(attr)
 				if shape_attr.data != nil {
@@ -103,7 +108,7 @@ fn parse_run_attributes(pango_item &C.PangoItem) RunAttributes {
 // Caller retains ownership; this function only inserts attributes.
 // Attributes inserted become owned by the list (don't free them separately).
 fn apply_rich_text_style(mut ctx Context, list PangoAttrList, style TextStyle, start int,
-	end int, mut cloned_ids []string) {
+	end int, effective_rise_pango int, mut cloned_ids []string) {
 	// 1. Color
 	if style.color.a > 0 {
 		mut attr := C.pango_attr_foreground_new(u16(style.color.r) << 8, u16(style.color.g) << 8,
@@ -138,7 +143,15 @@ fn apply_rich_text_style(mut ctx Context, list PangoAttrList, style TextStyle, s
 		C.pango_attr_list_insert(list.ptr, attr)
 	}
 
-	// 5. Font Description (Name, Size, Typeface, Variations)
+	// 5. Baseline Rise
+	if effective_rise_pango != 0 {
+		mut attr := C.pango_attr_rise_new(effective_rise_pango)
+		attr.start_index = u32(start)
+		attr.end_index = u32(end)
+		C.pango_attr_list_insert(list.ptr, attr)
+	}
+
+	// 6. Font Description (Name, Size, Typeface, Variations)
 	// Set if font_name, size, or typeface is defined.
 	if style.font_name != '' || style.size > 0 || style.typeface != .regular {
 		mut desc := PangoFontDescription{}
@@ -195,7 +208,7 @@ fn apply_rich_text_style(mut ctx Context, list PangoAttrList, style TextStyle, s
 		}
 	}
 
-	// 6. OpenType Features
+	// 7. OpenType Features
 	if unsafe { style.features != nil } && style.features.opentype_features.len > 0 {
 		mut sb := strings.new_builder(64)
 		for i, f in style.features.opentype_features {
@@ -212,7 +225,7 @@ fn apply_rich_text_style(mut ctx Context, list PangoAttrList, style TextStyle, s
 		attr.end_index = u32(end)
 		C.pango_attr_list_insert(list.ptr, attr)
 	}
-	// 7. Letter Spacing
+	// 8. Letter Spacing
 	if style.letter_spacing != 0 {
 		spacing := int(style.letter_spacing * ctx.scale_factor * pango_scale)
 		mut ls := C.pango_attr_letter_spacing_new(spacing)
@@ -220,7 +233,7 @@ fn apply_rich_text_style(mut ctx Context, list PangoAttrList, style TextStyle, s
 		ls.end_index = u32(end)
 		C.pango_attr_list_insert(list.ptr, ls)
 	}
-	// 8. Inline Objects
+	// 9. Inline Objects
 	if unsafe { style.object != nil } {
 		obj := style.object
 		// Pango units

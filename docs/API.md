@@ -219,8 +219,11 @@ Defines character-level styling attributes.
 | `bg_color`          | `gg.Color`       | `transparent` | Background color (highlight).                        |
 | `underline`         | `bool`           | `false`       | Draw a single underline.                             |
 | `strikethrough`     | `bool`           | `false`       | Draw a strikethrough line.                           |
+| `rise`              | `f32`            | `0.0`         | Baseline shift in logical pixels; positive moves text up. |
 | `features`          | `&FontFeatures`  | `nil`         | Advanced typography settings.                        |
 | `object`            | `&InlineObject`  | `nil`         | Inline object definition (reserved space).           |
+
+Run-level `rise` values are cumulative with the base `TextConfig.style.rise`.
 
 ## Typeface
 

@@ -33,6 +33,7 @@ concurrency:
 
 env:
   CORE_PKG_CONFIG_MODULES: freetype2 harfbuzz fribidi fontconfig pango pangoft2 gobject-2.0 glib-2.0
+  V_VERSION: ddc9c99fda9b46d4a1e3d8fe674a4395bb311d96
 
 jobs:
   linux:
@@ -51,7 +52,7 @@ jobs:
       - name: Install V
         uses: vlang/setup-v@v1.4
         with:
-          check-latest: true
+          version: ${{ env.V_VERSION }}
 
       - name: Log V version
         run: v version
@@ -158,7 +159,7 @@ jobs:
       - name: Install V
         uses: vlang/setup-v@v1.4
         with:
-          check-latest: true
+          version: ${{ env.V_VERSION }}
 
       - name: Log V version
         run: v version
@@ -185,7 +186,7 @@ jobs:
             echo "[$test_index/${#test_files[@]}] $file"
             test_index=$((test_index + 1))
           done
-          VJOBS=1 v -no-parallel test "${test_files[@]}"
+          VJOBS=1 v -no-parallel -cc clang test "${test_files[@]}"
 
       - name: Compile examples
         run: |
@@ -206,7 +207,7 @@ jobs:
           for file in "${example_files[@]}"; do
             echo "[$example_index/${#example_files[@]}] $file"
             VMODULES="$RUNNER_TEMP/vglyph-vmodules" \
-              v -no-parallel -path "@vlib|@vmodules|." \
+              v -no-parallel -cc clang -path "@vlib|@vmodules|." \
               -o "$RUNNER_TEMP/vglyph-example-bin/$(basename "${file%.v}")" \
               "$file"
             example_index=$((example_index + 1))
@@ -232,7 +233,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $revision = (git ls-remote https://github.com/vlang/v HEAD).Split()[0]
+          $revision = '${{ env.V_VERSION }}'
           "revision=$revision" | Add-Content -Path $env:GITHUB_OUTPUT
 
       - name: Restore V compiler cache

@@ -49,16 +49,134 @@ pub fn (mut ctx Context) layout_text(text string, cfg TextConfig) !Layout {
 		return Layout{}
 	}
 
-	// Defensive UTF-8 validation (API boundary validates, this is defense-in-depth)
-	validate_text_input(text, max_text_length, @FN)!
+	// Defensive validation (API boundary validates, this is defense-in-depth).
+	validate_layout_text_input(text, @FN)!
 
-	mut layout := setup_pango_layout(mut ctx, text, cfg) or {
+	markup_rise_pango := int(cfg.style.rise * ctx.scale_factor * pango_scale)
+	compose_markup_rise := cfg.use_markup && markup_rise_pango != 0
+	pango_cfg := if compose_markup_rise { config_without_base_rise(cfg) } else { cfg }
+	mut layout := setup_pango_layout(mut ctx, text, pango_cfg) or {
 		log.error('${@FILE_LINE}: ${err.msg()}')
 		return err
 	}
 	defer { layout.free() }
 
+	if compose_markup_rise {
+		compose_markup_style_rise(layout, markup_rise_pango)
+	}
 	return build_layout_from_pango(layout, text, ctx.scale_factor, cfg)
+}
+
+fn config_without_base_rise(cfg TextConfig) TextConfig {
+	return TextConfig{
+		...cfg
+		style: TextStyle{
+			...cfg.style
+			rise: 0
+		}
+	}
+}
+
+fn validate_layout_text_input(text string, location string) ! {
+	validate_text_input(text, max_text_length, location)!
+	for i in 0 .. text.len {
+		if text[i] == 0 {
+			return error('NUL byte not allowed at ${location}')
+		}
+	}
+}
+
+fn compose_markup_style_rise(layout PangoLayout, style_rise int) {
+	base_attrs := layout.get_attributes()
+	plain_text_ptr := C.pango_layout_get_text(layout.ptr)
+	plain_len := if plain_text_ptr == unsafe { nil } {
+		0
+	} else {
+		unsafe { cstring_to_vstring(plain_text_ptr).len }
+	}
+	if plain_len == 0 {
+		return
+	}
+
+	mut composed := new_pango_attr_list()
+	if base_attrs == unsafe { nil } {
+		insert_rise_attr(composed, 0, plain_len, style_rise)
+		layout.set_attributes(composed)
+		composed.free()
+		return
+	}
+
+	iter := C.pango_attr_list_get_iterator(base_attrs)
+	if iter == unsafe { nil } {
+		insert_rise_attr(composed, 0, plain_len, style_rise)
+		layout.set_attributes(composed)
+		composed.free()
+		return
+	}
+
+	for {
+		mut start := 0
+		mut end := 0
+		C.pango_attr_iterator_range(iter, &start, &end)
+		if start < 0 {
+			start = 0
+		}
+		if end < 0 || end > plain_len {
+			end = plain_len
+		}
+		if start < end {
+			markup_rise := copy_effective_attrs_without_rise(iter, composed, start, end)
+			insert_rise_attr(composed, start, end, style_rise + markup_rise)
+		}
+		if !C.pango_attr_iterator_next(iter) {
+			break
+		}
+	}
+	C.pango_attr_iterator_destroy(iter)
+	layout.set_attributes(composed)
+	composed.free()
+}
+
+fn copy_effective_attrs_without_rise(iter &C.PangoAttrIterator, attrs PangoAttrList, start int,
+	end int) int {
+	mut markup_rise := 0
+	mut attr_node := C.pango_attr_iterator_get_attrs(iter)
+	mut node := attr_node
+	for node != unsafe { nil } {
+		mut attr_copy := &C.PangoAttribute(unsafe { nil })
+		mut rise_delta := 0
+		unsafe {
+			attr := &C.PangoAttribute(node.data)
+			if attr.klass.type == .pango_attr_rise {
+				int_attr := &C.PangoAttrInt(attr)
+				rise_delta = int_attr.value
+			} else {
+				attr_copy = C.pango_attribute_copy(attr)
+			}
+			C.pango_attribute_destroy(attr)
+		}
+		markup_rise += rise_delta
+		if attr_copy != unsafe { nil } {
+			attr_copy.start_index = u32(start)
+			attr_copy.end_index = u32(end)
+			C.pango_attr_list_insert(attrs.ptr, attr_copy)
+		}
+		node = node.next
+	}
+	if attr_node != unsafe { nil } {
+		C.g_slist_free(attr_node)
+	}
+	return markup_rise
+}
+
+fn insert_rise_attr(attrs PangoAttrList, start int, end int, rise int) {
+	if rise == 0 || start >= end {
+		return
+	}
+	mut attr := C.pango_attr_rise_new(rise)
+	attr.start_index = u32(start)
+	attr.end_index = u32(end)
+	C.pango_attr_list_insert(attrs.ptr, attr)
 }
 
 // layout_rich_text layouts text with multiple styles (RichText).
@@ -79,9 +197,9 @@ pub fn (mut ctx Context) layout_rich_text(rt RichText, cfg TextConfig) !Layout {
 		return Layout{}
 	}
 
-	// Defensive validation of each run's text (defense-in-depth)
+	// Defensive validation of each run's text (defense-in-depth).
 	for run in rt.runs {
-		validate_text_input(run.text, max_text_length, @FN)!
+		validate_layout_text_input(run.text, @FN)!
 	}
 
 	// 1. Build Full Text and Calculate Indices
@@ -111,8 +229,10 @@ pub fn (mut ctx Context) layout_rich_text(rt RichText, cfg TextConfig) !Layout {
 
 	text := full_text.str()
 
-	// 2. Setup base layout with global config (font, align, wrap, base color)
-	mut layout := setup_pango_layout(mut ctx, text, cfg) or {
+	// 2. Setup base layout with global config. Rich text applies rise per run
+	// below so Pango geometry uses VGlyph's cumulative rise semantics.
+	pango_cfg := config_without_base_rise(cfg)
+	mut layout := setup_pango_layout(mut ctx, text, pango_cfg) or {
 		log.error('${@FILE_LINE}: ${err.msg()}')
 		return err
 	}
@@ -132,7 +252,10 @@ pub fn (mut ctx Context) layout_rich_text(rt RichText, cfg TextConfig) !Layout {
 	// Apply styles from runs
 	mut cloned_ids := []string{}
 	for run in valid_runs {
-		apply_rich_text_style(mut ctx, attr_list, run.style, run.start, run.end, mut cloned_ids)
+		effective_rise := cfg.style.rise + run.style.rise
+		effective_rise_pango := int(effective_rise * ctx.scale_factor * pango_scale)
+		apply_rich_text_style(mut ctx, attr_list, run.style, run.start, run.end,
+			effective_rise_pango, mut cloned_ids)
 	}
 
 	layout.set_attributes(attr_list)
@@ -208,6 +331,7 @@ fn build_layout_from_pango(layout PangoLayout, text string, scale_factor f32,
 
 	mut all_glyphs := []Glyph{}
 	mut items := []Item{}
+	line_rises := compute_line_rises(layout)
 
 	// Track cumulative vertical position for vertical text stacking
 	mut vertical_pen_y := match cfg.orientation {
@@ -238,6 +362,7 @@ fn build_layout_from_pango(layout PangoLayout, text string, scale_factor f32,
 				orientation:          cfg.orientation
 				stroke_width:         cfg.style.stroke_width
 				stroke_color:         cfg.style.stroke_color
+				line_rises:           line_rises
 			})
 		}
 
@@ -250,13 +375,13 @@ fn build_layout_from_pango(layout PangoLayout, text string, scale_factor f32,
 	mut char_rects := []CharRect{}
 	mut char_rect_by_index := map[int]int{}
 	if !cfg.no_hit_testing {
-		char_rects = compute_hit_test_rects(layout, text, scale_factor)
+		char_rects = compute_hit_test_rects(layout, text, scale_factor, line_rises, cfg.orientation)
 		// Build index map for O(1) lookup
 		for i, cr in char_rects {
 			char_rect_by_index[cr.index] = i
 		}
 	}
-	lines := compute_lines(layout, scale_factor)
+	lines := compute_lines(layout, scale_factor, line_rises, cfg.orientation)
 
 	ink_rect := C.PangoRectangle{}
 	logical_rect := C.PangoRectangle{}

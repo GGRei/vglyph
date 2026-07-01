@@ -97,6 +97,15 @@ fn setup_pango_layout(mut ctx Context, text string, cfg TextConfig) !PangoLayout
 			C.pango_attr_list_insert(attr_list.ptr, s_attr)
 		}
 
+		// Baseline Rise
+		if cfg.style.rise != 0 {
+			rise := int(cfg.style.rise * ctx.scale_factor * pango_scale)
+			mut r_attr := C.pango_attr_rise_new(rise)
+			r_attr.start_index = 0
+			r_attr.end_index = u32(C.G_MAXUINT)
+			C.pango_attr_list_insert(attr_list.ptr, r_attr)
+		}
+
 		// Letter Spacing
 		if cfg.style.letter_spacing != 0 {
 			spacing := int(cfg.style.letter_spacing * ctx.scale_factor * pango_scale)

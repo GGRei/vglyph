@@ -107,7 +107,7 @@ pacman -S mingw-w64-x86_64-pango mingw-w64-x86_64-freetype
 Use the `TextSystem` for the easiest integration. It handles initialization,
 caching, and rendering.
 
-```v
+```v oksyntax
 import vglyph
 import gg
 

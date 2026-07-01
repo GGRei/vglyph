@@ -10,6 +10,12 @@ pub mut:
 	strike_thick f64
 }
 
+struct LineRise {
+	start int
+	end   int
+	rise  int
+}
+
 // get_run_metrics fetches metrics (position, thickness) for active decorations
 // (underline, strikethrough) using Pango API.
 fn get_run_metrics(pango_font &C.PangoFont, language &C.PangoLanguage,
@@ -59,6 +65,65 @@ struct ProcessRunConfig {
 	orientation          TextOrientation
 	stroke_width         f32
 	stroke_color         gg.Color
+	line_rises           []LineRise
+}
+
+fn resolve_line_rise(start int, length int, ranges []LineRise, fallback int) int {
+	end := start + length
+	for rise_range in ranges {
+		if start < rise_range.end && end > rise_range.start {
+			return rise_range.rise
+		}
+	}
+	return fallback
+}
+
+fn resolve_line_rise_at(index int, ranges []LineRise) int {
+	for rise_range in ranges {
+		if index >= rise_range.start && index < rise_range.end {
+			return rise_range.rise
+		}
+	}
+	return 0
+}
+
+fn compute_line_rises(layout PangoLayout) []LineRise {
+	mut line_rises := []LineRise{}
+	mut iter := layout.get_iter()
+	if iter.is_nil() {
+		return line_rises
+	}
+	defer { iter.free() }
+
+	for {
+		line_ptr := C.pango_layout_iter_get_line_readonly(iter.ptr)
+		if line_ptr != unsafe { nil } {
+			mut found := false
+			mut max_rise := 0
+			mut run_node := line_ptr.runs
+			for run_node != unsafe { nil } {
+				unsafe {
+					run := &C.PangoLayoutRun(run_node.data)
+					attrs := parse_run_attributes(run.item)
+					if !found || attrs.rise > max_rise {
+						max_rise = attrs.rise
+						found = true
+					}
+					run_node = run_node.next
+				}
+			}
+			line_rises << LineRise{
+				start: line_ptr.start_index
+				end:   line_ptr.start_index + line_ptr.length
+				rise:  if found { max_rise } else { 0 }
+			}
+		}
+
+		if !C.pango_layout_iter_next_line(iter.ptr) {
+			break
+		}
+	}
+	return line_rises
 }
 
 // process_run converts a single Pango glyph run into a V `Item`.
@@ -104,7 +169,20 @@ fn process_run(mut items []Item, mut all_glyphs []Glyph, vertical_pen_y f64,
 
 	mut run_ascent := f64(ascent_pango) * pixel_scale
 	mut run_descent := f64(descent_pango) * pixel_scale
-	mut run_y := f64(baseline_pango) * pixel_scale
+	raw_run_y := f64(baseline_pango) * pixel_scale
+
+	rise_pango := attrs.rise
+	line_rise_pango := resolve_line_rise(pango_item.offset, pango_item.length, cfg.line_rises,
+		rise_pango)
+	rise := f64(rise_pango) * pixel_scale
+	line_rise := f64(line_rise_pango) * pixel_scale
+	// Pango shifts the line baseline by the maximum rise on that line. Normalize
+	// by the line rise, then apply this run's own visual rise exactly once below.
+	base_run_y := raw_run_y - line_rise
+	if rise != 0 {
+		run_ascent -= rise
+		run_descent += rise
+	}
 
 	// Emoji: override run metrics with primary text font
 	// metrics so GPU scaling matches text height.
@@ -178,14 +256,19 @@ fn process_run(mut items []Item, mut all_glyphs []Glyph, vertical_pen_y f64,
 	// Pango's run_y (horizontal baseline offset) maps to X centering.
 
 	line_height_run := cfg.primary_ascent + cfg.primary_descent
-	final_run_x, final_run_y, new_vertical_pen_y := match cfg.orientation {
+	final_run_x, run_position_y, new_vertical_pen_y := match cfg.orientation {
 		.horizontal {
-			compute_run_position_horizontal(run_x, run_y, vertical_pen_y)
+			compute_run_position_horizontal(run_x, base_run_y, vertical_pen_y)
 		}
 		.vertical {
-			compute_run_position_vertical(run_x, run_y, vertical_pen_y, line_height_run,
+			compute_run_position_vertical(run_x, base_run_y, vertical_pen_y, line_height_run,
 				glyph_count)
 		}
+	}
+
+	mut final_run_y := run_position_y
+	if rise != 0 {
+		final_run_y -= rise
 	}
 
 	// Get sub-text
@@ -256,7 +339,8 @@ fn process_run(mut items []Item, mut all_glyphs []Glyph, vertical_pen_y f64,
 
 // compute_hit_test_rects generates bounding boxes for every character
 // to enable efficient hit testing.
-fn compute_hit_test_rects(layout PangoLayout, text string, scale_factor f32) []CharRect {
+fn compute_hit_test_rects(layout PangoLayout, text string, scale_factor f32,
+	line_rises []LineRise, orientation TextOrientation) []CharRect {
 	mut char_rects := []CharRect{cap: text.len}
 
 	// Use iterator for O(N) traversal instead of O(N^2) with index_to_pos
@@ -297,6 +381,12 @@ fn compute_hit_test_rects(layout PangoLayout, text string, scale_factor f32) []C
 		mut final_y := f32(pos.y) * pixel_scale
 		mut final_w := f32(pos.width) * pixel_scale
 		mut final_h := f32(pos.height) * pixel_scale
+		// Vertical layout has its own run transform; do not adjust cached Pango
+		// extents there until char/line geometry is transformed as a whole.
+		line_rise_pango := resolve_line_rise_at(idx, line_rises)
+		if orientation == .horizontal && line_rise_pango != 0 {
+			final_y -= f32(line_rise_pango) * pixel_scale
+		}
 
 		if final_w < 0 {
 			final_x += final_w
@@ -330,7 +420,8 @@ fn compute_hit_test_rects(layout PangoLayout, text string, scale_factor f32) []C
 	return char_rects
 }
 
-fn compute_lines(layout PangoLayout, scale_factor f32) []Line {
+fn compute_lines(layout PangoLayout, scale_factor f32, line_rises []LineRise,
+	orientation TextOrientation) []Line {
 	line_count := C.pango_layout_get_line_count(layout.ptr)
 	mut lines := []Line{cap: line_count}
 	// Reset iterator to start
@@ -352,6 +443,13 @@ fn compute_lines(layout PangoLayout, scale_factor f32) []Line {
 			mut final_y := f32(rect.y) * pixel_scale
 			mut final_w := f32(rect.width) * pixel_scale
 			mut final_h := f32(rect.height) * pixel_scale
+			// Keep the mixed-rise normalization horizontal-only for the same
+			// reason as character extents above.
+			line_rise_pango :=
+				resolve_line_rise(line_ptr.start_index, line_ptr.length, line_rises, 0)
+			if orientation == .horizontal && line_rise_pango != 0 {
+				final_y -= f32(line_rise_pango) * pixel_scale
+			}
 
 			lines << Line{
 				start_index:        line_ptr.start_index
