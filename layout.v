@@ -88,7 +88,7 @@ fn validate_layout_text_input(text string, location string) ! {
 
 fn compose_markup_style_rise(layout PangoLayout, style_rise int) {
 	base_attrs := layout.get_attributes()
-	plain_text_ptr := C.pango_layout_get_text(layout.ptr)
+	plain_text_ptr := C.vglyph_pango_layout_get_text_borrowed(layout.ptr)
 	plain_len := if plain_text_ptr == unsafe { nil } {
 		0
 	} else {
@@ -291,7 +291,7 @@ fn build_layout_from_pango(layout PangoLayout, text string, scale_factor f32,
 	mut primary_descent := f64(0)
 	mut primary_strike_pos := f64(0)
 	mut primary_strike_thick := f64(0)
-	font_desc := C.pango_layout_get_font_description(layout.ptr)
+	font_desc := C.vglyph_pango_layout_get_font_description_borrowed(layout.ptr)
 	if font_desc != unsafe { nil } {
 		// Create a temporary metrics context
 		ctx := C.pango_layout_get_context(layout.ptr)

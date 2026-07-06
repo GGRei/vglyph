@@ -259,6 +259,7 @@ pub const subpixel_bins = 4 // Number of subpixel bins (0, 0.25, 0.5, 0.75)
 
 #include <pango/pango.h>
 #include <pango/pangoft2.h>
+#include "pango_const_compat.h"
 #include <glib-object.h>
 #include <glib.h>
 
@@ -377,6 +378,12 @@ pub mut:
 
 @[typedef]
 pub struct C.PangoFontMap {}
+
+@[typedef]
+pub struct C.PangoFT2FontMap {}
+
+@[typedef]
+pub struct C.PangoFcFontMap {}
 
 @[typedef]
 pub struct C.PangoFont {}
@@ -583,7 +590,8 @@ pub const pango_glyph_unknown_flag = 0x10000000
 
 // Pango FT2
 fn C.pango_ft2_font_map_new() &C.PangoFontMap
-fn C.pango_ft2_font_map_set_resolution(&C.PangoFontMap, f64, f64)
+fn C.PANGO_FT2_FONT_MAP(&C.PangoFontMap) &C.PangoFT2FontMap
+fn C.pango_ft2_font_map_set_resolution(&C.PangoFT2FontMap, f64, f64)
 fn C.pango_font_map_create_context(&C.PangoFontMap) &C.PangoContext
 fn C.pango_ft2_font_get_face(&C.PangoFont) &C.FT_FaceRec
 
@@ -593,8 +601,8 @@ fn C.pango_layout_set_text(&C.PangoLayout, &char, int)
 fn C.pango_layout_set_markup(&C.PangoLayout, &char, int)
 fn C.pango_layout_set_font_description(&C.PangoLayout, &C.PangoFontDescription)
 fn C.pango_layout_get_iter(&C.PangoLayout) &C.PangoLayoutIter
-fn C.pango_layout_get_text(&C.PangoLayout) &char
-fn C.pango_layout_get_font_description(&C.PangoLayout) &C.PangoFontDescription
+fn C.vglyph_pango_layout_get_text_borrowed(&C.PangoLayout) &char
+fn C.vglyph_pango_layout_get_font_description_borrowed(&C.PangoLayout) &C.PangoFontDescription
 fn C.pango_layout_get_extents(&C.PangoLayout, &C.PangoRectangle, &C.PangoRectangle)
 fn C.pango_layout_index_to_pos(&C.PangoLayout, int, &C.PangoRectangle)
 
@@ -615,7 +623,7 @@ fn C.pango_font_description_new() &C.PangoFontDescription
 fn C.pango_font_description_from_string(&char) &C.PangoFontDescription
 fn C.pango_font_description_free(&C.PangoFontDescription)
 fn C.pango_font_description_to_string(&C.PangoFontDescription) &char
-fn C.pango_font_description_get_family(&C.PangoFontDescription) &char
+fn C.vglyph_pango_font_description_get_family_borrowed(&C.PangoFontDescription) &char
 fn C.pango_font_description_set_family(&C.PangoFontDescription, &char)
 fn C.pango_font_description_set_variations(&C.PangoFontDescription, &char)
 fn C.pango_font_description_get_variations(&C.PangoFontDescription) &char
@@ -733,7 +741,8 @@ fn C.FcConfigAppFontAddFile(config &C.FcConfig, file &char) C.FcBool
 fn C.FcConfigAppFontAddDir(config &C.FcConfig, dir &char) C.FcBool
 
 // PangoFc
-fn C.pango_fc_font_map_config_changed(voidptr)
+fn C.PANGO_FC_FONT_MAP(&C.PangoFontMap) &C.PangoFcFontMap
+fn C.pango_fc_font_map_config_changed(&C.PangoFcFontMap)
 
 // Pango LogAttr - Character classification for cursor positioning
 // C struct uses bitfields, V accesses them as u32 members (guint = u32)
@@ -761,7 +770,7 @@ pub:
 // Pango Cursor Functions
 fn C.pango_layout_get_cursor_pos(&C.PangoLayout, int, &C.PangoRectangle, &C.PangoRectangle)
 fn C.pango_layout_move_cursor_visually(&C.PangoLayout, bool, int, int, int, &int, &int)
-fn C.pango_layout_get_log_attrs_readonly(&C.PangoLayout, &int) &C.PangoLogAttr
+fn C.vglyph_pango_layout_get_log_attrs_readonly_borrowed(&C.PangoLayout, &int) &C.PangoLogAttr
 
 // Linux IME bridge C bindings
 $if linux {
