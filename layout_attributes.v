@@ -165,7 +165,7 @@ fn apply_rich_text_style(mut ctx Context, list PangoAttrList, style TextStyle, s
 		if !desc.is_nil() {
 			if style.font_name != '' {
 				// Resolve aliases (important for 'System Font')
-				fam_ptr := C.pango_font_description_get_family(desc.ptr)
+				fam_ptr := C.vglyph_pango_font_description_get_family_borrowed(desc.ptr)
 				fam := if fam_ptr != unsafe { nil } {
 					unsafe { cstring_to_vstring(fam_ptr) }
 				} else {

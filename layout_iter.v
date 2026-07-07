@@ -353,7 +353,7 @@ fn compute_hit_test_rects(layout PangoLayout, text string, scale_factor f32,
 
 	// Calculate fallback width for zero-width spaces
 	pixel_scale := 1.0 / (f32(pango_scale) * scale_factor)
-	font_desc := C.pango_layout_get_font_description(layout.ptr)
+	font_desc := C.vglyph_pango_layout_get_font_description_borrowed(layout.ptr)
 	mut fallback_width := f32(0)
 	if font_desc != unsafe { nil } {
 		size_pango := C.pango_font_description_get_size(font_desc)
@@ -482,7 +482,7 @@ struct LogAttrResult {
 // Uses Pango iterator to properly handle multi-byte characters (emoji, CJK, etc).
 fn extract_log_attrs(layout PangoLayout, text string) LogAttrResult {
 	mut n_attrs := int(0)
-	attrs_ptr := C.pango_layout_get_log_attrs_readonly(layout.ptr, &n_attrs)
+	attrs_ptr := C.vglyph_pango_layout_get_log_attrs_readonly_borrowed(layout.ptr, &n_attrs)
 	if attrs_ptr == unsafe { nil } || n_attrs == 0 {
 		return LogAttrResult{}
 	}

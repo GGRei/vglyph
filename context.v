@@ -181,7 +181,8 @@ pub fn new_context(scale_factor f32) !&Context {
 	// Set default resolution to 72 DPI * scale_factor.
 	// This ensures that 1 pt == 1 px (logical).
 	safe_scale := if scale_factor > 0 { scale_factor } else { 1.0 }
-	C.pango_ft2_font_map_set_resolution(pango_font_map, 72.0 * safe_scale, 72.0 * safe_scale)
+	ft2_font_map := C.PANGO_FT2_FONT_MAP(pango_font_map)
+	C.pango_ft2_font_map_set_resolution(ft2_font_map, 72.0 * safe_scale, 72.0 * safe_scale)
 
 	pango_context := C.pango_font_map_create_context(pango_font_map)
 	if voidptr(pango_context) == unsafe { nil } {
@@ -208,7 +209,8 @@ pub fn new_context(scale_factor f32) !&Context {
 				C.FcConfigAppFontAddDir(config, &char(path.str))
 			}
 			// Trigger update
-			C.pango_fc_font_map_config_changed(pango_font_map)
+			fc_font_map := C.PANGO_FC_FONT_MAP(pango_font_map)
+			C.pango_fc_font_map_config_changed(fc_font_map)
 		}
 	}
 
@@ -257,7 +259,8 @@ pub fn (mut ctx Context) add_font_file(path string) ! {
 	if res != 1 {
 		return error('FcConfigAppFontAddFile() failed for "${path}" at ${@FILE}:${@LINE}')
 	}
-	C.pango_fc_font_map_config_changed(ctx.pango_font_map.ptr)
+	fc_font_map := C.PANGO_FC_FONT_MAP(ctx.pango_font_map.ptr)
+	C.pango_fc_font_map_config_changed(fc_font_map)
 }
 
 // font_height returns the total visual height (ascent + descent) of the font
@@ -413,7 +416,7 @@ pub fn (mut ctx Context) resolve_font_name(font_desc_str string) !string {
 	defer { desc.free() }
 
 	// Resolve aliases
-	fam_ptr := C.pango_font_description_get_family(desc.ptr)
+	fam_ptr := C.vglyph_pango_font_description_get_family_borrowed(desc.ptr)
 	fam := if fam_ptr != unsafe { nil } { unsafe { cstring_to_vstring(fam_ptr) } } else { '' }
 	resolved_fam := resolve_family_alias(fam)
 	C.pango_font_description_set_family(desc.ptr, resolved_fam.str)
@@ -449,7 +452,7 @@ pub fn resolve_font_alias(name string) string {
 	defer { desc.free() }
 
 	// Get the family name (comma separated list)
-	fam_ptr := C.pango_font_description_get_family(desc.ptr)
+	fam_ptr := C.vglyph_pango_font_description_get_family_borrowed(desc.ptr)
 	fam := if fam_ptr != unsafe { nil } { unsafe { cstring_to_vstring(fam_ptr) } } else { '' }
 
 	// Apply aliases
@@ -507,7 +510,7 @@ pub fn (mut ctx Context) create_font_description(style TextStyle) PangoFontDescr
 	}
 
 	// Resolve and set family aliases
-	fam_ptr := C.pango_font_description_get_family(desc.ptr)
+	fam_ptr := C.vglyph_pango_font_description_get_family_borrowed(desc.ptr)
 	fam := if fam_ptr != unsafe { nil } { unsafe { cstring_to_vstring(fam_ptr) } } else { '' }
 	resolved_fam := resolve_family_alias(fam)
 	C.pango_font_description_set_family(desc.ptr, resolved_fam.str)
