@@ -33,7 +33,10 @@ concurrency:
 
 env:
   CORE_PKG_CONFIG_MODULES: freetype2 harfbuzz fribidi fontconfig pango pangoft2 gobject-2.0 glib-2.0
-  V_VERSION: ddc9c99fda9b46d4a1e3d8fe674a4395bb311d96
+  V_REPOSITORY: https://github.com/GGRei/v.git
+  V_VERSION: 0d637893eccd3ac34607ac3c9b9ffc0808375745
+  LEGACY_V_REPOSITORY: https://github.com/vlang/v.git
+  LEGACY_V_VERSION: ddc9c99fda9b46d4a1e3d8fe674a4395bb311d96
 
 jobs:
   linux:
@@ -49,13 +52,90 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install V
-        uses: vlang/setup-v@v1.4
+      - name: Restore current V compiler cache
+        id: restore-v-cache
+        uses: actions/cache/restore@v4
         with:
-          version: ${{ env.V_VERSION }}
+          path: ${{ runner.temp }}/v-current
+          key: linux-v-compiler-${{ env.V_VERSION }}-v1
 
-      - name: Log V version
-        run: v version
+      - name: Install current V
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_revision='${{ env.V_VERSION }}'
+          v_checkout="$RUNNER_TEMP/v-current"
+          if [[ -x "$v_checkout/v" ]]; then
+            cached_revision="$(git -C "$v_checkout" rev-parse HEAD)"
+            if [[ "$cached_revision" != "$expected_revision" ]]; then
+              echo "Cached V revision $cached_revision does not match $expected_revision; rebuilding."
+              rm -rf "$v_checkout"
+            fi
+          fi
+          if [[ ! -x "$v_checkout/v" ]]; then
+            rm -rf "$v_checkout"
+            git init "$v_checkout"
+            git -C "$v_checkout" remote add origin '${{ env.V_REPOSITORY }}'
+            git -C "$v_checkout" fetch --depth 1 origin "$expected_revision"
+            git -C "$v_checkout" checkout --detach FETCH_HEAD
+            make -C "$v_checkout" -j2
+          fi
+          actual_revision="$(git -C "$v_checkout" rev-parse HEAD)"
+          [[ "$actual_revision" == "$expected_revision" ]]
+          echo "$v_checkout" >> "$GITHUB_PATH"
+          echo "V_CURRENT=$v_checkout/v" >> "$GITHUB_ENV"
+
+      - name: Log current V version and revision
+        run: |
+          v version
+          git -C "$RUNNER_TEMP/v-current" rev-parse HEAD
+
+      - name: Save current V compiler cache
+        if: steps.restore-v-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/v-current
+          key: ${{ steps.restore-v-cache.outputs.cache-primary-key }}
+
+      - name: Restore legacy V compiler cache
+        id: restore-legacy-v-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/v-legacy
+          key: linux-v-compiler-${{ env.LEGACY_V_VERSION }}-v1
+
+      - name: Install legacy V for dynamic compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_revision='${{ env.LEGACY_V_VERSION }}'
+          v_checkout="$RUNNER_TEMP/v-legacy"
+          if [[ -x "$v_checkout/v" ]]; then
+            cached_revision="$(git -C "$v_checkout" rev-parse HEAD)"
+            if [[ "$cached_revision" != "$expected_revision" ]]; then
+              echo "Cached legacy V revision $cached_revision does not match $expected_revision; rebuilding."
+              rm -rf "$v_checkout"
+            fi
+          fi
+          if [[ ! -x "$v_checkout/v" ]]; then
+            rm -rf "$v_checkout"
+            git init "$v_checkout"
+            git -C "$v_checkout" remote add origin '${{ env.LEGACY_V_REPOSITORY }}'
+            git -C "$v_checkout" fetch --depth 1 origin "$expected_revision"
+            git -C "$v_checkout" checkout --detach FETCH_HEAD
+            make -C "$v_checkout" -j2
+          fi
+          actual_revision="$(git -C "$v_checkout" rev-parse HEAD)"
+          [[ "$actual_revision" == "$expected_revision" ]]
+          "$v_checkout/v" version
+          echo "V_LEGACY=$v_checkout/v" >> "$GITHUB_ENV"
+
+      - name: Save legacy V compiler cache
+        if: steps.restore-legacy-v-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/v-legacy
+          key: ${{ steps.restore-legacy-v-cache.outputs.cache-primary-key }}
 
       - name: Install native dependencies
         run: |
@@ -81,6 +161,49 @@ jobs:
       - name: Verify native pkg-config modules
         run: pkg-config --exists $CORE_PKG_CONFIG_MODULES
 
+      - name: Verify V1 and strict embedded V3 compiler routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          canary="$RUNNER_TEMP/vglyph-compiler-route-canary.v"
+          printf '%s\n' \
+            'module main' \
+            '' \
+            'fn main() {' \
+            "    println('vglyph-compiler-route-ok')" \
+            '}' > "$canary"
+          for generation in v1 v3; do
+            vmodules="$RUNNER_TEMP/vglyph-vmodules-linux-$generation-canary"
+            output="$RUNNER_TEMP/vglyph-linux-$generation-canary"
+            log="$RUNNER_TEMP/vglyph-linux-$generation-canary.log"
+            rm -rf "$vmodules" "$output"
+            mkdir -p "$vmodules"
+            if [[ "$generation" == v1 ]]; then
+              compiler_args=(-verbose -old-compiler -no-parallel)
+              VMODULES="$vmodules" \
+                v "${compiler_args[@]}" -o "$output" "$canary" 2>&1 | tee "$log"
+              if grep -Fq 'Running macOS V3 compiler in process:' "$log"; then
+                echo 'V1 canary unexpectedly entered the embedded V3 driver' >&2
+                exit 1
+              fi
+            else
+              compiler_args=(-verbose -new-compiler -gc none -no-parallel)
+              VMODULES="$vmodules" V_MACOS_V3_NO_FALLBACK=1 \
+                v "${compiler_args[@]}" -o "$output" "$canary" 2>&1 | tee "$log"
+              if [[ "$(grep -Fc 'Running macOS V3 compiler in process:' "$log")" -ne 1 ]]; then
+                echo 'Strict V3 canary did not emit exactly one in-process marker' >&2
+                exit 1
+              fi
+              if grep -Eiq 'V3 could not build this program|compatibility fallback|fallback disabled' "$log"; then
+                echo 'Strict V3 canary emitted a fallback marker' >&2
+                exit 1
+              fi
+            fi
+            test -x "$output"
+            runtime_stdout="$($output)"
+            [[ "$runtime_stdout" == 'vglyph-compiler-route-ok' ]]
+          done
+
       - name: Verify formatting
         run: |
           fmt_files=()
@@ -100,8 +223,9 @@ jobs:
           ln -s "$PWD" "$RUNNER_TEMP/vglyph-vmodules-docs/vglyph"
           VMODULES="$RUNNER_TEMP/vglyph-vmodules-docs" v check-md README.md docs
 
-      - name: Run tests
+      - name: Run tests with V1 and V3
         run: |
+          set -euo pipefail
           test_files=()
           while IFS= read -r file; do
             test_files+=("$file")
@@ -116,9 +240,79 @@ jobs:
             echo "[$test_index/${#test_files[@]}] $file"
             test_index=$((test_index + 1))
           done
-          VJOBS=1 v -no-parallel test "${test_files[@]}"
+          echo "Running ${#test_files[@]} files with V1"
+          VJOBS=1 v -old-compiler -no-parallel test "${test_files[@]}"
+          echo "Running ${#test_files[@]} files with strict V3"
+          VJOBS=1 V_MACOS_V3_NO_FALLBACK=1 \
+            v -new-compiler -gc none -no-parallel test "${test_files[@]}"
 
-      - name: Compile examples
+      - name: Verify legacy V dynamic compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$V_LEGACY" version
+          conditional_file='windows_static_linker_d_v_static_pkgconfig.c.v'
+          assert_legacy_manifest() {
+            local selection="$1"
+            local manifest="$2"
+            local basenames="$RUNNER_TEMP/legacy-$selection-v-files.basenames"
+            : > "$basenames"
+            while IFS= read -r line; do
+              line="${line%$'\r'}"
+              line="${line%\"}"
+              line="${line#\"}"
+              base="${line##*/}"
+              base="${base##*\\}"
+              [[ -n "$base" ]] && printf '%s\n' "$base" >> "$basenames"
+            done < "$manifest"
+            if [[ "$(grep -Fxc 'c_bindings.v' "$basenames")" -ne 1 ]]; then
+              echo "Legacy $selection selection did not contain c_bindings.v exactly once" >&2
+              return 1
+            fi
+            if [[ "$(grep -Fxc "$conditional_file" "$basenames")" -ne 0 ]]; then
+              echo "Legacy $selection selection unexpectedly included $conditional_file" >&2
+              return 1
+            fi
+            rm -f -- "$basenames"
+          }
+          for selection in native cross-windows; do
+            selection_args=(-no-parallel -print-v-files)
+            if [[ "$selection" == cross-windows ]]; then
+              selection_args+=(-os windows)
+            fi
+            selection_args+=(.)
+            selection_log="$RUNNER_TEMP/legacy-$selection-v-files.log"
+            set +e
+            "$V_LEGACY" "${selection_args[@]}" | tee "$selection_log"
+            pipeline_status=("${PIPESTATUS[@]}")
+            set -e
+            if [[ "${pipeline_status[0]}" -ne 0 || "${pipeline_status[1]}" -ne 0 ]]; then
+              echo "Legacy $selection manifest command/tee failed: ${pipeline_status[*]}" >&2
+              exit 1
+            fi
+            test -s "$selection_log"
+            assert_legacy_manifest "$selection" "$selection_log"
+          done
+
+          run_legacy_owner() {
+            local label="$1"
+            local file="$2"
+            local log="$RUNNER_TEMP/legacy-$label.log"
+            VJOBS=1 "$V_LEGACY" -no-parallel test "$file" 2>&1 | tee "$log"
+            if [[ "$(grep -Foc '1 passed, 1 total' "$log")" -ne 1 ]]; then
+              echo "Legacy owner $label did not emit exactly one successful summary" >&2
+              return 1
+            fi
+            if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|panic' "$log"; then
+              echo "Legacy owner $label emitted a forbidden no-op/failure marker" >&2
+              return 1
+            fi
+          }
+
+          run_legacy_owner static-macro-selection _windows_static_link_test.v
+          run_legacy_owner integration _integration_test.v
+
+      - name: Compile examples with V1 and V3
         run: |
           set -euo pipefail
           example_files=()
@@ -129,18 +323,31 @@ jobs:
             echo "No tracked examples found"
             exit 1
           fi
-          rm -rf "$RUNNER_TEMP/vglyph-vmodules" "$RUNNER_TEMP/vglyph-example-bin"
-          mkdir -p "$RUNNER_TEMP/vglyph-vmodules" "$RUNNER_TEMP/vglyph-example-bin"
+          rm -rf "$RUNNER_TEMP/vglyph-vmodules" \
+            "$RUNNER_TEMP/vglyph-example-bin-v1" \
+            "$RUNNER_TEMP/vglyph-example-bin-v3"
+          mkdir -p "$RUNNER_TEMP/vglyph-vmodules" \
+            "$RUNNER_TEMP/vglyph-example-bin-v1" \
+            "$RUNNER_TEMP/vglyph-example-bin-v3"
           ln -s "$PWD" "$RUNNER_TEMP/vglyph-vmodules/vglyph"
           echo "Examples: ${#example_files[@]}"
-          example_index=1
-          for file in "${example_files[@]}"; do
-            echo "[$example_index/${#example_files[@]}] $file"
-            VMODULES="$RUNNER_TEMP/vglyph-vmodules" \
-              v -no-parallel -path "@vlib|@vmodules|." \
-              -o "$RUNNER_TEMP/vglyph-example-bin/$(basename "${file%.v}")" \
-              "$file"
-            example_index=$((example_index + 1))
+          for compiler_generation in v1 v3; do
+            if [[ "$compiler_generation" == v1 ]]; then
+              compiler_args=(-old-compiler)
+              unset V_MACOS_V3_NO_FALLBACK
+            else
+              compiler_args=(-new-compiler -gc none)
+              export V_MACOS_V3_NO_FALLBACK=1
+            fi
+            example_index=1
+            for file in "${example_files[@]}"; do
+              echo "[$compiler_generation][$example_index/${#example_files[@]}] $file"
+              VMODULES="$RUNNER_TEMP/vglyph-vmodules" \
+                v "${compiler_args[@]}" -no-parallel -path "@vlib|@vmodules|." \
+                -o "$RUNNER_TEMP/vglyph-example-bin-$compiler_generation/$(basename "${file%.v}")" \
+                "$file"
+              example_index=$((example_index + 1))
+            done
           done
 
   macos:
@@ -156,13 +363,49 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install V
-        uses: vlang/setup-v@v1.4
+      - name: Restore V compiler cache
+        id: restore-v-cache
+        uses: actions/cache/restore@v4
         with:
-          version: ${{ env.V_VERSION }}
+          path: ${{ runner.temp }}/v-current
+          key: macos-v-compiler-${{ env.V_VERSION }}-v1
 
-      - name: Log V version
-        run: v version
+      - name: Install V
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_revision='${{ env.V_VERSION }}'
+          v_checkout="$RUNNER_TEMP/v-current"
+          if [[ -x "$v_checkout/v" ]]; then
+            cached_revision="$(git -C "$v_checkout" rev-parse HEAD)"
+            if [[ "$cached_revision" != "$expected_revision" ]]; then
+              echo "Cached V revision $cached_revision does not match $expected_revision; rebuilding."
+              rm -rf "$v_checkout"
+            fi
+          fi
+          if [[ ! -x "$v_checkout/v" ]]; then
+            rm -rf "$v_checkout"
+            git init "$v_checkout"
+            git -C "$v_checkout" remote add origin '${{ env.V_REPOSITORY }}'
+            git -C "$v_checkout" fetch --depth 1 origin "$expected_revision"
+            git -C "$v_checkout" checkout --detach FETCH_HEAD
+            make -C "$v_checkout" -j2
+          fi
+          actual_revision="$(git -C "$v_checkout" rev-parse HEAD)"
+          [[ "$actual_revision" == "$expected_revision" ]]
+          echo "$v_checkout" >> "$GITHUB_PATH"
+
+      - name: Log V version and revision
+        run: |
+          v version
+          git -C "$RUNNER_TEMP/v-current" rev-parse HEAD
+
+      - name: Save V compiler cache
+        if: steps.restore-v-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/v-current
+          key: ${{ steps.restore-v-cache.outputs.cache-primary-key }}
 
       - name: Install native dependencies
         run: v retry -- brew install pkg-config pango freetype harfbuzz fribidi fontconfig
@@ -170,8 +413,52 @@ jobs:
       - name: Verify native pkg-config modules
         run: pkg-config --exists $CORE_PKG_CONFIG_MODULES
 
-      - name: Run tests
+      - name: Verify V1 and strict embedded V3 compiler routes
+        shell: bash
         run: |
+          set -euo pipefail
+          canary="$RUNNER_TEMP/vglyph-compiler-route-canary.v"
+          printf '%s\n' \
+            'module main' \
+            '' \
+            'fn main() {' \
+            "    println('vglyph-compiler-route-ok')" \
+            '}' > "$canary"
+          for generation in v1 v3; do
+            vmodules="$RUNNER_TEMP/vglyph-vmodules-macos-$generation-canary"
+            output="$RUNNER_TEMP/vglyph-macos-$generation-canary"
+            log="$RUNNER_TEMP/vglyph-macos-$generation-canary.log"
+            rm -rf "$vmodules" "$output"
+            mkdir -p "$vmodules"
+            if [[ "$generation" == v1 ]]; then
+              compiler_args=(-verbose -old-compiler -no-parallel -cc clang)
+              VMODULES="$vmodules" v "${compiler_args[@]}" \
+                -o "$output" "$canary" 2>&1 | tee "$log"
+              if grep -Fq 'Running macOS V3 compiler in process:' "$log"; then
+                echo 'V1 canary unexpectedly entered the embedded V3 driver' >&2
+                exit 1
+              fi
+            else
+              compiler_args=(-verbose -new-compiler -gc none -no-parallel -cc clang)
+              VMODULES="$vmodules" V_MACOS_V3_NO_FALLBACK=1 \
+                v "${compiler_args[@]}" -o "$output" "$canary" 2>&1 | tee "$log"
+              if [[ "$(grep -Fc 'Running macOS V3 compiler in process:' "$log")" -ne 1 ]]; then
+                echo 'Strict V3 canary did not emit exactly one in-process marker' >&2
+                exit 1
+              fi
+              if grep -Eiq 'V3 could not build this program|compatibility fallback|fallback disabled' "$log"; then
+                echo 'Strict V3 canary emitted a fallback marker' >&2
+                exit 1
+              fi
+            fi
+            test -x "$output"
+            runtime_stdout="$($output)"
+            [[ "$runtime_stdout" == 'vglyph-compiler-route-ok' ]]
+          done
+
+      - name: Run tests with V1 and V3
+        run: |
+          set -euo pipefail
           test_files=()
           while IFS= read -r file; do
             test_files+=("$file")
@@ -186,9 +473,13 @@ jobs:
             echo "[$test_index/${#test_files[@]}] $file"
             test_index=$((test_index + 1))
           done
-          VJOBS=1 v -no-parallel -cc clang test "${test_files[@]}"
+          echo "Running ${#test_files[@]} files with V1"
+          VJOBS=1 v -old-compiler -no-parallel -cc clang test "${test_files[@]}"
+          echo "Running ${#test_files[@]} files with strict V3"
+          VJOBS=1 V_MACOS_V3_NO_FALLBACK=1 \
+            v -new-compiler -gc none -no-parallel -cc clang test "${test_files[@]}"
 
-      - name: Compile examples
+      - name: Compile examples with V1 and V3
         run: |
           set -euo pipefail
           example_files=()
@@ -199,18 +490,32 @@ jobs:
             echo "No tracked examples found"
             exit 1
           fi
-          rm -rf "$RUNNER_TEMP/vglyph-vmodules" "$RUNNER_TEMP/vglyph-example-bin"
-          mkdir -p "$RUNNER_TEMP/vglyph-vmodules" "$RUNNER_TEMP/vglyph-example-bin"
+          rm -rf "$RUNNER_TEMP/vglyph-vmodules" \
+            "$RUNNER_TEMP/vglyph-example-bin-v1" \
+            "$RUNNER_TEMP/vglyph-example-bin-v3"
+          mkdir -p "$RUNNER_TEMP/vglyph-vmodules" \
+            "$RUNNER_TEMP/vglyph-example-bin-v1" \
+            "$RUNNER_TEMP/vglyph-example-bin-v3"
           ln -s "$PWD" "$RUNNER_TEMP/vglyph-vmodules/vglyph"
           echo "Examples: ${#example_files[@]}"
-          example_index=1
-          for file in "${example_files[@]}"; do
-            echo "[$example_index/${#example_files[@]}] $file"
-            VMODULES="$RUNNER_TEMP/vglyph-vmodules" \
-              v -no-parallel -cc clang -path "@vlib|@vmodules|." \
-              -o "$RUNNER_TEMP/vglyph-example-bin/$(basename "${file%.v}")" \
-              "$file"
-            example_index=$((example_index + 1))
+          for compiler_generation in v1 v3; do
+            if [[ "$compiler_generation" == v1 ]]; then
+              compiler_args=(-old-compiler)
+              unset V_MACOS_V3_NO_FALLBACK
+            else
+              compiler_args=(-new-compiler -gc none)
+              export V_MACOS_V3_NO_FALLBACK=1
+            fi
+            example_index=1
+            for file in "${example_files[@]}"; do
+              echo "[$compiler_generation][$example_index/${#example_files[@]}] $file"
+              VMODULES="$RUNNER_TEMP/vglyph-vmodules" \
+                v "${compiler_args[@]}" -no-parallel -cc clang \
+                -path "@vlib|@vmodules|." \
+                -o "$RUNNER_TEMP/vglyph-example-bin-$compiler_generation/$(basename "${file%.v}")" \
+                "$file"
+              example_index=$((example_index + 1))
+            done
           done
 
   windows:
@@ -220,8 +525,8 @@ jobs:
     env:
       VFLAGS: -no-parallel
       VJOBS: 1
-      VCPKG_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
-      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\vcpkg-binary-cache,readwrite
+      VCPKG_BINARY_CACHE: ${{ runner.temp }}\vcpkg-binary-cache
+      VCPKG_BINARY_SOURCES: clear;files,${{ runner.temp }}\vcpkg-binary-cache,readwrite
     steps:
       - name: Checkout vglyph
         uses: actions/checkout@v6
@@ -268,7 +573,7 @@ jobs:
             }
             git init $vCheckout
             Assert-NativeCommand "git init failed"
-            git -C $vCheckout remote add origin https://github.com/vlang/v
+            git -C $vCheckout remote add origin '${{ env.V_REPOSITORY }}'
             Assert-NativeCommand "git remote add failed"
             git -C $vCheckout fetch --depth 1 origin $expectedRevision
             Assert-NativeCommand "git fetch failed"
@@ -281,8 +586,15 @@ jobs:
             }
             Pop-Location
           }
+          $actualRevision = (& git -C $vCheckout rev-parse HEAD).Trim()
+          Assert-NativeCommand "Could not verify installed V revision"
+          if ($actualRevision -ne $expectedRevision) {
+            throw "Installed V revision $actualRevision does not match $expectedRevision"
+          }
           $vPath = (Resolve-Path $vCheckout).Path
           Add-Content -Path $env:GITHUB_PATH -Value $vPath
+          "V_CURRENT=$(Join-Path $vPath 'v.exe')" | Add-Content -Path $env:GITHUB_ENV
+          "V_CURRENT_ROOT=$vPath" | Add-Content -Path $env:GITHUB_ENV
 
       - name: Log V version
         shell: pwsh
@@ -295,12 +607,30 @@ jobs:
           path: ${{ runner.temp }}\v
           key: ${{ steps.restore-v-cache.outputs.cache-primary-key }}
 
+      - name: Resolve vcpkg revision
+        id: vcpkg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkgExe = (Get-Command vcpkg -ErrorAction Stop).Source
+          $vcpkgRoot = if ($env:VCPKG_ROOT) {
+            $env:VCPKG_ROOT
+          } else {
+            Split-Path -Parent $vcpkgExe
+          }
+          $revision = (& git -C $vcpkgRoot rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
+            throw "Could not resolve the vcpkg checkout revision at $vcpkgRoot"
+          }
+          & $vcpkgExe version
+          "revision=$revision" | Add-Content -Path $env:GITHUB_OUTPUT
+
       - name: Restore vcpkg binary cache
         id: restore-vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.VCPKG_BINARY_CACHE }}
-          key: windows-vcpkg-x64-windows-vglyph-native-${{ steps.v.outputs.revision }}-v1
+          key: windows-vcpkg-x64-windows-vglyph-native-${{ steps.vcpkg.outputs.revision }}-deps-v2
           restore-keys: |
             windows-vcpkg-x64-windows-vglyph-native-
 
@@ -396,9 +726,86 @@ jobs:
             throw "pkg-config could not resolve: ${{ env.CORE_PKG_CONFIG_MODULES }}"
           }
 
+      - name: Verify MSVC dynamic source selection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:RUNNER_TEMP 'msvc-v1-dynamic-v-files.log'
+          & $env:V_CURRENT -old-compiler -no-parallel -cc msvc -print-v-files . `
+            2>&1 | Tee-Object -FilePath $manifest
+          if ($LASTEXITCODE -ne 0 -or (Get-Item $manifest).Length -eq 0) {
+            throw "MSVC V1 dynamic source manifest failed or is empty"
+          }
+          $basenames = @(
+            Get-Content $manifest | ForEach-Object {
+              $line = $_.Trim().Trim('"')
+              if ($line) { [IO.Path]::GetFileName($line) }
+            }
+          )
+          if (@($basenames | Where-Object { $_ -ceq 'c_bindings.v' }).Count -ne 1) {
+            throw "MSVC V1 dynamic manifest must contain c_bindings.v exactly once"
+          }
+          if (@($basenames | Where-Object {
+              $_ -ceq 'windows_static_linker_d_v_static_pkgconfig.c.v'
+            }).Count -ne 0) {
+            throw "MSVC V1 dynamic manifest selected the static conditional linker file"
+          }
+
+          $ownerSource = Join-Path $env:GITHUB_WORKSPACE '_windows_static_link_test.v'
+          $signature = 'fn test_windows_static_consumer_macros_follow_pkgconfig_mode() {'
+          if (@([IO.File]::ReadAllLines($ownerSource) | Where-Object {
+              $_ -ceq $signature
+            }).Count -ne 1) {
+            throw "MSVC V1 macro owner definition cardinality mismatch"
+          }
+          $ownerLog = Join-Path $env:RUNNER_TEMP 'msvc-v1-dynamic-owner.log'
+          & $env:V_CURRENT -old-compiler -no-parallel -cc msvc `
+            -no-retry-compilation test $ownerSource 2>&1 | Tee-Object -FilePath $ownerLog
+          if ($LASTEXITCODE -ne 0) {
+            throw "MSVC V1 dynamic macro owner failed"
+          }
+          $ownerText = [IO.File]::ReadAllText($ownerLog)
+          if (([regex]::Matches($ownerText, [regex]::Escape('1 passed, 1 total'))).Count -ne 1) {
+            throw "MSVC V1 dynamic macro owner summary cardinality mismatch"
+          }
+          if ($ownerText -match '(?im)\b0\s+total\b|no tests found|skipped|skipping|panic') {
+            throw "MSVC V1 dynamic macro owner emitted a forbidden no-op/failure marker"
+          }
+
+      - name: Verify top-level V3 is rejected on Windows MSVC
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:RUNNER_TEMP 'vglyph-windows-v3-stub-canary.v'
+          $output = Join-Path $env:RUNNER_TEMP 'vglyph-windows-v3-stub-canary.exe'
+          $log = Join-Path $env:RUNNER_TEMP 'vglyph-windows-v3-stub-canary.log'
+          Set-Content -LiteralPath $source -Encoding ascii -Value @(
+            'module main',
+            'fn main() { println(''unexpected'') }'
+          )
+          Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
+          & $env:V_CURRENT -new-compiler -gc none -cc msvc -o $output $source `
+            2>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -eq 0) {
+            throw "Windows top-level -new-compiler unexpectedly succeeded"
+          }
+          if (Test-Path -LiteralPath $output) {
+            throw "Windows top-level -new-compiler produced an output despite rejection"
+          }
+          $text = [IO.File]::ReadAllText($log)
+          $diagnostic = '`-new-compiler` requires a build that embeds the V3 compiler, which this one does not.'
+          if (([regex]::Matches($text, [regex]::Escape($diagnostic))).Count -ne 1) {
+            throw "Windows top-level V3 stub diagnostic cardinality mismatch"
+          }
+          if ($text -match 'Running macOS V3 compiler in process:') {
+            throw "Windows V3 stub unexpectedly entered the embedded compiler"
+          }
+
       - name: Run tests
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           [string[]]$testFiles = @(git ls-files | Where-Object { $_ -match '^[^/]+_test\.v$' } | Sort-Object)
           if ($testFiles.Length -eq 0) {
             throw "No tracked test files found"
@@ -409,7 +816,9 @@ jobs:
             Write-Host "[$($i + 1)/$totalTests] $($testFiles[$i])"
           }
           $env:VJOBS = '1'
-          v -no-parallel -cc msvc test @testFiles
+          $log = Join-Path $env:RUNNER_TEMP 'msvc-v1-suite.log'
+          & $env:V_CURRENT -old-compiler -no-parallel -cc msvc test @testFiles `
+            2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -434,8 +843,1192 @@ jobs:
             $file = $exampleFiles[$i]
             Write-Host "[$($i + 1)/$totalExamples] $file"
             $out = Join-Path $outDir ([System.IO.Path]::GetFileNameWithoutExtension($file))
-            v -no-parallel -cc msvc -path '@vlib|@vmodules|.' -o $out $file
+            & $env:V_CURRENT -old-compiler -no-parallel -cc msvc `
+              -path '@vlib|@vmodules|.' -o $out $file
             if ($LASTEXITCODE -ne 0) {
               throw "example failed: $file"
             }
           }
+
+  windows-gnu:
+    name: CI Checks / Windows GNU (${{ matrix.lane }})
+    runs-on: windows-2025
+    timeout-minutes: 110
+    env:
+      VFLAGS: -no-parallel
+      VJOBS: 1
+      V_C_ERROR_BUG_REPORT_DISABLED: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: ucrt64-gcc
+            msystem: UCRT64
+            compiler_package: mingw-w64-ucrt-x86_64-gcc
+            dependency_prefix: mingw-w64-ucrt-x86_64
+            cc: gcc
+            cxx: g++
+            family: gcc
+            object_tool: objdump
+          - lane: ucrt64-clang
+            msystem: UCRT64
+            compiler_package: mingw-w64-ucrt-x86_64-clang
+            dependency_prefix: mingw-w64-ucrt-x86_64
+            cc: clang
+            cxx: clang++
+            family: clang
+            object_tool: llvm-objdump
+          - lane: clang64-clang
+            msystem: CLANG64
+            compiler_package: mingw-w64-clang-x86_64-clang
+            dependency_prefix: mingw-w64-clang-x86_64
+            cc: clang
+            cxx: clang++
+            family: clang
+            object_tool: llvm-objdump
+    steps:
+      - name: Checkout vglyph
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve V revision
+        id: v
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $revision = '${{ env.V_VERSION }}'
+          if ($revision -notmatch '^[0-9a-f]{40}$') {
+            throw "Invalid V revision: $revision"
+          }
+          "revision=$revision" | Add-Content -Path $env:GITHUB_OUTPUT
+
+      - name: Restore V compiler cache
+        id: restore-v-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}\v-gnu
+          key: windows-v-compiler-${{ steps.v.outputs.revision }}-gnu-v1
+
+      - name: Install V
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Assert-NativeCommand($Message) {
+            if ($LASTEXITCODE -ne 0) {
+              throw $Message
+            }
+          }
+          $expectedRevision = '${{ steps.v.outputs.revision }}'
+          $vCheckout = Join-Path $env:RUNNER_TEMP 'v-gnu'
+          if (Test-Path (Join-Path $vCheckout 'v.exe')) {
+            $cachedRevision = (& git -C $vCheckout rev-parse HEAD).Trim()
+            Assert-NativeCommand "Could not inspect cached V revision"
+            if ($cachedRevision -ne $expectedRevision) {
+              Write-Host "Cached V revision $cachedRevision does not match $expectedRevision; rebuilding."
+              Remove-Item -Recurse -Force $vCheckout
+            }
+          }
+          if (-not (Test-Path (Join-Path $vCheckout 'v.exe'))) {
+            if (Test-Path $vCheckout) {
+              Remove-Item -Recurse -Force $vCheckout
+            }
+            git init $vCheckout
+            Assert-NativeCommand "git init failed"
+            git -C $vCheckout remote add origin '${{ env.V_REPOSITORY }}'
+            Assert-NativeCommand "git remote add failed"
+            git -C $vCheckout fetch --depth 1 origin $expectedRevision
+            Assert-NativeCommand "git fetch failed"
+            git -C $vCheckout checkout --detach FETCH_HEAD
+            Assert-NativeCommand "git checkout failed"
+            Push-Location $vCheckout
+            cmd /c makev.bat
+            if ($LASTEXITCODE -ne 0) {
+              throw "makev.bat failed"
+            }
+            Pop-Location
+          }
+          $actualRevision = (& git -C $vCheckout rev-parse HEAD).Trim()
+          Assert-NativeCommand "Could not verify installed V revision"
+          if ($actualRevision -ne $expectedRevision) {
+            throw "Installed V revision $actualRevision does not match $expectedRevision"
+          }
+          $vExe = (Resolve-Path (Join-Path $vCheckout 'v.exe')).Path
+          "V_GNU_EXE=$vExe" | Add-Content -Path $env:GITHUB_ENV
+          "V_GNU_ROOT=$((Resolve-Path $vCheckout).Path)" | Add-Content -Path $env:GITHUB_ENV
+          & $vExe version
+
+      - name: Save V compiler cache
+        if: matrix.lane == 'ucrt64-gcc' && steps.restore-v-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}\v-gnu
+          key: ${{ steps.restore-v-cache.outputs.cache-primary-key }}
+
+      - name: Install MSYS2 dependencies
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          cache: true
+          path-type: minimal
+          install: >-
+            git
+            python
+            ${{ matrix.compiler_package }}
+            ${{ matrix.dependency_prefix }}-pkgconf
+            ${{ matrix.dependency_prefix }}-pango
+            ${{ matrix.dependency_prefix }}-freetype
+            ${{ matrix.dependency_prefix }}-harfbuzz
+            ${{ matrix.dependency_prefix }}-fribidi
+            ${{ matrix.dependency_prefix }}-fontconfig
+
+      - name: Verify toolchain and static pkg-config provenance
+        id: provenance
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          : > "$artifact_dir/owners.log"
+
+          cc_path="$(command -v '${{ matrix.cc }}')"
+          cxx_path="$(command -v '${{ matrix.cxx }}')"
+          pkg_config_path="$(command -v pkg-config)"
+          object_tool_path="$(command -v '${{ matrix.object_tool }}')"
+          for tool_path in "$cc_path" "$cxx_path" "$pkg_config_path" "$object_tool_path"; do
+            case "$tool_path" in
+              "$MINGW_PREFIX"/bin/*) ;;
+              *)
+                echo "Tool escaped $MINGW_PREFIX/bin: $tool_path" >&2
+                exit 1
+                ;;
+            esac
+          done
+          cc_version="$("$cc_path" --version 2>&1)"
+          cxx_version="$("$cxx_path" --version 2>&1)"
+          printf '%s\n%s\n' "$cc_version" "$cxx_version"
+          if [[ '${{ matrix.family }}' == clang ]]; then
+            [[ "$cc_version" == *clang* && "$cc_version" != *clang-cl* ]]
+            [[ "$cxx_version" == *clang* && "$cxx_version" != *clang-cl* ]]
+          else
+            [[ "$cc_version" =~ GCC|gcc|Free[[:space:]]Software[[:space:]]Foundation|MinGW ]]
+            [[ "$cc_version" != *clang* ]]
+            [[ "$cxx_version" =~ GCC|gcc|Free[[:space:]]Software[[:space:]]Foundation|MinGW ]]
+            [[ "$cxx_version" != *clang* ]]
+          fi
+
+          modules=($CORE_PKG_CONFIG_MODULES)
+          pkg-config --exists "${modules[@]}"
+          pacman -Q \
+            '${{ matrix.compiler_package }}' \
+            '${{ matrix.dependency_prefix }}-pkgconf' \
+            '${{ matrix.dependency_prefix }}-pango' \
+            '${{ matrix.dependency_prefix }}-glib2' \
+            '${{ matrix.dependency_prefix }}-freetype' \
+            '${{ matrix.dependency_prefix }}-harfbuzz' \
+            '${{ matrix.dependency_prefix }}-fribidi' \
+            '${{ matrix.dependency_prefix }}-fontconfig' \
+            '${{ matrix.dependency_prefix }}-gettext-runtime' \
+            '${{ matrix.dependency_prefix }}-libiconv' \
+            | tee "$artifact_dir/packages.txt"
+          dependency_chain="$artifact_dir/dependency-chain-packages.txt"
+          : > "$dependency_chain"
+          assert_direct_dependency() {
+            local package="$1"
+            local dependency="$2"
+            local package_info
+            local declared_dependencies
+            package_info="$(pacman -Qi "$package")"
+            printf '### %s\n%s\n' "$package" "$package_info" >> "$dependency_chain"
+            declared_dependencies="$({
+              printf '%s\n' "$package_info" | awk '
+                /^Depends On[[:space:]]*:/ { capture = 1; print; next }
+                capture && /^[[:alnum:] ][[:alnum:] ]*[[:space:]]*:/ { exit }
+                capture { print }
+              '
+            } | tr '\n' ' ')"
+            if ! grep -Eq "(^|[[:space:]])${dependency}([<>=][^[:space:]]*)?([[:space:]]|$)" \
+              <<< "$declared_dependencies"; then
+              echo "$package does not declare the expected dependency $dependency" >&2
+              return 1
+            fi
+          }
+          assert_direct_dependency \
+            '${{ matrix.dependency_prefix }}-pango' \
+            '${{ matrix.dependency_prefix }}-glib2'
+          assert_direct_dependency \
+            '${{ matrix.dependency_prefix }}-glib2' \
+            '${{ matrix.dependency_prefix }}-gettext-runtime'
+          assert_direct_dependency \
+            '${{ matrix.dependency_prefix }}-gettext-runtime' \
+            '${{ matrix.dependency_prefix }}-libiconv'
+          cat "$dependency_chain"
+          static_pkgconfig_libs="$(pkg-config --static --libs "${modules[@]}")"
+          printf '%s\n' "$static_pkgconfig_libs" \
+            | tee "$artifact_dir/pkgconfig-static-libs.txt"
+          read -r -a static_pkgconfig_tokens <<< "$static_pkgconfig_libs"
+          intl_count=0
+          iconv_count=0
+          intl_index=-1
+          iconv_index=-1
+          for index in "${!static_pkgconfig_tokens[@]}"; do
+            case "${static_pkgconfig_tokens[$index]}" in
+              -lintl)
+                intl_count=$((intl_count + 1))
+                intl_index="$index"
+                ;;
+              -liconv)
+                iconv_count=$((iconv_count + 1))
+                iconv_index="$index"
+                ;;
+            esac
+          done
+          if [[ "$intl_count" -ne 1 || "$iconv_count" -ne 1 || "$intl_index" -ge "$iconv_index" ]]; then
+            echo 'Static pkg-config metadata must emit one -lintl before one -liconv' >&2
+            exit 1
+          fi
+          for module in "${modules[@]}"; do
+            printf '%s\t%s\n' "$module" "$(pkgconf --path "$module")"
+          done | tee "$artifact_dir/pkgconfig-paths.txt"
+          printf 'cc=%s\ncxx=%s\npkg_config=%s\nobject_tool=%s\n' \
+            "$cc_path" "$cxx_path" "$pkg_config_path" "$object_tool_path" \
+            | tee "$artifact_dir/tool-paths.txt"
+          printf '%s\n' 'OWNER_RESULT label=provenance status=success' \
+            >> "$artifact_dir/owners.log"
+          echo "VG_ARTIFACT_DIR=$(cygpath -w "$artifact_dir")" >> "$GITHUB_ENV"
+
+      - name: Prepare bounded real probe
+        id: prepare
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          probe="$runner_temp/vglyph-probe-${{ matrix.lane }}.v"
+          parser="$runner_temp/vglyph-final-link-parser-${{ matrix.lane }}.py"
+          signature='fn test_windows_static_consumer_macros_follow_pkgconfig_mode() {'
+          if [[ "$(grep -Fxc "$signature" _windows_static_link_test.v)" -ne 1 ]]; then
+            echo 'Macro owner definition cardinality mismatch' >&2
+            exit 1
+          fi
+          printf '%s\n' \
+            'module main' \
+            '' \
+            'import vglyph' \
+            '' \
+            'fn main() {' \
+            '    mut ctx := vglyph.new_context(1.0)!' \
+            '    ctx.free()' \
+            '}' > "$probe"
+          test -s "$probe"
+          cat > "$parser" <<'PY'
+          import argparse
+          import json
+          import os
+          import re
+          import subprocess
+
+
+          def split_args(text):
+              args = []
+              current = []
+              quote = None
+              has_arg = False
+              i = 0
+              while i < len(text):
+                  ch = text[i]
+                  if quote is None and ch in ' \t\r\n':
+                      if has_arg:
+                          args.append(''.join(current))
+                          current = []
+                          has_arg = False
+                      i += 1
+                      continue
+                  if ch in "'\"":
+                      if quote is None:
+                          quote = ch
+                          has_arg = True
+                          i += 1
+                          continue
+                      if quote == ch:
+                          quote = None
+                          i += 1
+                          continue
+                  if ch == '\\' and quote != "'" and i + 1 < len(text):
+                      nxt = text[i + 1]
+                      escapable = nxt in ('"', '\\') if quote == '"' else nxt in ' \t\r\n\'"\\'
+                      if escapable:
+                          current.append(nxt)
+                          has_arg = True
+                          i += 2
+                          continue
+                  current.append(ch)
+                  has_arg = True
+                  i += 1
+              if quote is not None:
+                  raise ValueError('unterminated quote in logged argv')
+              if has_arg:
+                  args.append(''.join(current))
+              return args
+
+
+          def normalized_rsp(path):
+              return path.replace('\\', '/').strip('"').lower()
+
+
+          def normalized_driver(path):
+              raw = path.strip('"')
+              if not (raw.startswith('/') or re.fullmatch(r'[A-Za-z]:[\\/].+', raw)):
+                  raise SystemExit(f'compiler driver is not absolute: {path!r}')
+              completed = subprocess.run(
+                  ('cygpath', '-aw', raw),
+                  check=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+                  text=True,
+              )
+              canonical = completed.stdout.strip().replace('\\', '/').lower()
+              if canonical.endswith('.exe'):
+                  canonical = canonical[:-4]
+              return canonical
+
+
+          def driver_basename(path):
+              base = os.path.basename(path.replace('\\', '/')).lower()
+              return base[:-4] if base.endswith('.exe') else base
+
+
+          parser = argparse.ArgumentParser()
+          parser.add_argument('--generation', choices=('v1', 'v3'), required=True)
+          parser.add_argument('--linkage', choices=('dynamic', 'static'), required=True)
+          parser.add_argument('--log', required=True)
+          parser.add_argument('--cc', required=True)
+          parser.add_argument('--cxx', required=True)
+          parser.add_argument('--output', required=True)
+          parser.add_argument('--record', required=True)
+          cfg = parser.parse_args()
+
+          with open(cfg.log, encoding='utf-8', errors='replace') as handle:
+              lines = handle.read().splitlines()
+
+          responses = []
+          for index, line in enumerate(lines):
+              v1 = re.fullmatch(r'> C compiler response file "(.*)":', line)
+              v3 = re.fullmatch(r'  > C\+\+ linker response file "(.*)":', line)
+              if v1:
+                  if index + 1 >= len(lines):
+                      raise SystemExit('V1 response header has no payload')
+                  responses.append((normalized_rsp(v1.group(1)), lines[index + 1], 'v1'))
+              elif v3:
+                  payload = []
+                  for following in lines[index + 1:]:
+                      if following.startswith(('"', "'")):
+                          payload.append(following)
+                      elif payload:
+                          break
+                  if not payload:
+                      raise SystemExit('V3 response header has no payload')
+                  responses.append((normalized_rsp(v3.group(1)), '\n'.join(payload), 'v3'))
+
+          commands = []
+          for index, line in enumerate(lines):
+              if line.startswith('> C compiler cmd: '):
+                  raw = line[len('> C compiler cmd: '):]
+              elif line.startswith('  > ') and not line.startswith('  > C++ linker response file '):
+                  raw = line[len('  > '):]
+              else:
+                  continue
+              tokens = split_args(raw)
+              if not tokens or '--version' in tokens[1:]:
+                  continue
+              response_tokens = [token for token in tokens[1:] if token.startswith('@')]
+              transport = 'argv'
+              expanded = list(tokens)
+              response_path = ''
+              if response_tokens:
+                  if len(response_tokens) != 1:
+                      raise SystemExit(f'expected one response token, got {response_tokens!r}')
+                  if len(tokens) != 2:
+                      raise SystemExit('response-file invocation contains external argv beyond driver and @rsp')
+                  response_path = response_tokens[0][1:]
+                  matches = [item for item in responses
+                             if item[0] == normalized_rsp(response_path)
+                             and item[2] == cfg.generation]
+                  if len(matches) != 1:
+                      raise SystemExit(f'response header/path cardinality mismatch for {response_path!r}')
+                  expanded = [tokens[0]] + split_args(matches[0][1])
+                  transport = 'response'
+              output_values = [expanded[pos + 1] for pos, token in enumerate(expanded[:-1])
+                               if token == '-o']
+              commands.append({
+                  'index': index,
+                  'raw': raw,
+                  'driver': tokens[0],
+                  'driver_basename': driver_basename(tokens[0]),
+                  'transport': transport,
+                  'response_path': response_path,
+                  'expanded': expanded,
+                  'compile_only': '-c' in expanded[1:],
+                  'outputs': output_values,
+              })
+
+          output_basename = driver_basename(cfg.output)
+          expected_link_output = 'out' if cfg.generation == 'v3' else output_basename
+
+
+          def is_expected_output(value):
+              if cfg.generation == 'v3':
+                  return value == expected_link_output
+              return driver_basename(value) == expected_link_output
+
+
+          candidates = [command for command in commands
+                        if not command['compile_only']
+                        and sum(is_expected_output(value)
+                                for value in command['outputs']) == 1]
+          if len(candidates) != 1:
+              raise SystemExit(f'final-link candidate cardinality mismatch: {len(candidates)}')
+          selected = candidates[0]
+          compiler_commands = [command for command in commands
+                               if command['driver_basename'] in {
+                                   driver_basename(cfg.cc), driver_basename(cfg.cxx)
+                               } and not command['compile_only']]
+          if not compiler_commands or selected['index'] != compiler_commands[-1]['index']:
+              raise SystemExit('selected final link is not the last non-compile compiler command')
+
+          expected = cfg.cxx if cfg.linkage == 'static' else cfg.cc
+          selected_driver_real = normalized_driver(selected['driver'])
+          expected_driver_real = normalized_driver(expected)
+          if selected_driver_real != expected_driver_real:
+              raise SystemExit(
+                  f'final driver mismatch: {selected_driver_real!r} != {expected_driver_real!r}'
+              )
+          if selected['driver_basename'] != driver_basename(expected):
+              raise SystemExit('final driver basename mismatch')
+          argv = selected['expanded'][1:]
+          if argv.count('-o') != 1 or '-c' in argv:
+              raise SystemExit('final argv must contain one -o and no -c')
+          if not any(re.search(r'\.(?:c|o)$', token, re.IGNORECASE) for token in argv):
+              raise SystemExit('final argv contains no C source or object input')
+          if any(token in ('-lstdc++', '-lc++') for token in argv):
+              raise SystemExit('named C++ runtime flag is forbidden')
+          for macro in ('-DGLIB_STATIC_COMPILATION', '-DGOBJECT_STATIC_COMPILATION'):
+              expected_count = 1 if cfg.linkage == 'static' else 0
+              if argv.count(macro) != expected_count:
+                  raise SystemExit(f'{macro} cardinality mismatch: {argv.count(macro)}')
+          if cfg.linkage == 'static':
+              if argv.count('-static') != 1:
+                  raise SystemExit('static final argv must contain exactly one -static token')
+              if argv.count('-lintl') != 1 or argv.count('-liconv') != 1:
+                  raise SystemExit('static metadata closure must contain one -lintl and one -liconv')
+              if argv.index('-lintl') >= argv.index('-liconv'):
+                  raise SystemExit('static metadata closure must order -lintl before -liconv')
+          else:
+              if argv.count('-static') != 0:
+                  raise SystemExit('dynamic final argv contains -static')
+              if argv.count('-liconv') != 0:
+                  raise SystemExit('dynamic final argv contains -liconv')
+
+          record = {
+              'driver': selected_driver_real,
+              'driver_basename': selected['driver_basename'],
+              'expanded_argv': selected['expanded'],
+              'generation': cfg.generation,
+              'linkage': cfg.linkage,
+              'link_output_token': expected_link_output,
+              'output_basename': output_basename,
+              'response_path': selected['response_path'],
+              'transport': selected['transport'],
+          }
+          with open(cfg.record, 'w', encoding='utf-8', newline='\n') as handle:
+              json.dump(record, handle, sort_keys=True, separators=(',', ':'))
+              handle.write('\n')
+          print(json.dumps(record, sort_keys=True, separators=(',', ':')))
+          PY
+          chmod 700 "$parser"
+          printf '%s\n' 'OWNER_RESULT label=prepare status=success' \
+            >> "$artifact_dir/owners.log"
+          echo "VG_PROBE=$(cygpath -w "$probe")" >> "$GITHUB_ENV"
+          echo "VG_LINK_PARSER=$(cygpath -w "$parser")" >> "$GITHUB_ENV"
+
+      - name: Restore strict standalone V3 cache
+        id: restore_v3_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}\v3-cache-${{ matrix.lane }}
+          key: windows-v3-standalone-${{ env.V_VERSION }}-${{ matrix.lane }}-schema2
+
+      - name: Build strict standalone V3 with the selected GNU toolchain
+        id: v3_standalone
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          unset CFLAGS LDFLAGS VFLAGS
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          vexe="$(cygpath -u "$V_GNU_EXE")"
+          vroot="$(cygpath -u "$V_GNU_ROOT")"
+          cc_path="$(command -v '${{ matrix.cc }}')"
+          cxx_path="$(command -v '${{ matrix.cxx }}')"
+          cache_dir="$runner_temp/v3-cache-${{ matrix.lane }}"
+          cached_v3="$cache_dir/v3.exe"
+          v3="$vroot/v3-vglyph-${{ matrix.lane }}.exe"
+          vlib_path="$(cygpath -w "$vroot/vlib")|@vlib|@vmodules"
+          revision_file="$cache_dir/revision.txt"
+          lane_file="$cache_dir/lane.txt"
+          sha_file="$cache_dir/sha256.txt"
+          size_file="$cache_dir/size.txt"
+          mkdir -p "$cache_dir"
+          if [[ '${{ steps.restore_v3_cache.outputs.cache-hit }}' == true ]]; then
+            [[ -f "$cached_v3" && ! -L "$cached_v3" && -x "$cached_v3" ]]
+            [[ -f "$revision_file" && ! -L "$revision_file" ]]
+            [[ -f "$lane_file" && ! -L "$lane_file" ]]
+            [[ -f "$sha_file" && ! -L "$sha_file" ]]
+            [[ -f "$size_file" && ! -L "$size_file" ]]
+            [[ "$(< "$revision_file")" == '${{ env.V_VERSION }}' ]]
+            [[ "$(< "$lane_file")" == '${{ matrix.lane }}' ]]
+            [[ "$(sha256sum "$cached_v3" | cut -d' ' -f1)" == "$(< "$sha_file")" ]]
+            [[ "$(stat -c '%s' "$cached_v3")" == "$(< "$size_file")" ]]
+            cp "$cached_v3" "$v3"
+            printf '%s\n' 'standalone V3 restored from validated cache' \
+              | tee "$artifact_dir/v3-standalone-build.log"
+          else
+            rm -f "$v3" "$cached_v3" "$revision_file" "$lane_file" "$sha_file" "$size_file"
+            set +e
+            "$vexe" -old-compiler -gc none -path "$vlib_path" \
+              -cc "$cc_path" -c++ "$cxx_path" -no-retry-compilation \
+              -o "$(cygpath -w "$v3")" "$(cygpath -w "$vroot/vlib/v3/v3.v")" \
+              2>&1 | tee "$artifact_dir/v3-standalone-build.log"
+            pipeline_status=("${PIPESTATUS[@]}")
+            set -e
+            if [[ "${pipeline_status[0]}" -ne 0 || "${pipeline_status[1]}" -ne 0 ]]; then
+              echo "Standalone V3 build command/tee failed: ${pipeline_status[*]}" >&2
+              exit 1
+            fi
+            [[ -f "$v3" && ! -L "$v3" && -x "$v3" ]]
+            cp "$v3" "$cached_v3"
+            printf '%s\n' '${{ env.V_VERSION }}' > "$revision_file"
+            printf '%s\n' '${{ matrix.lane }}' > "$lane_file"
+            sha256sum "$cached_v3" | cut -d' ' -f1 > "$sha_file"
+            stat -c '%s' "$cached_v3" > "$size_file"
+          fi
+          [[ -f "$v3" && ! -L "$v3" && -x "$v3" ]]
+          [[ "$(sha256sum "$v3" | cut -d' ' -f1)" == "$(< "$sha_file")" ]]
+          [[ "$(stat -c '%s' "$v3")" == "$(< "$size_file")" ]]
+
+          canary_root="$runner_temp/v3-cache-canary-${{ matrix.lane }}"
+          rm -rf "$canary_root"
+          mkdir -p "$canary_root/cwd" "$canary_root/vmodules" "$canary_root/vcache" \
+            "$canary_root/v3cache" "$canary_root/vtmp"
+          printf '%s\n' \
+            'module main' \
+            "fn main() { println('v3-cache-canary-ok') }" \
+            > "$canary_root/canary.v"
+          set +e
+          (
+            cd "$canary_root/cwd"
+            VMODULES="$(cygpath -w "$canary_root/vmodules")" \
+              VCACHE="$(cygpath -w "$canary_root/vcache")" \
+              V3CACHE="$(cygpath -w "$canary_root/v3cache")" \
+              VTMP="$(cygpath -w "$canary_root/vtmp")" \
+              "$v3" -gc none -no-parallel -path "$vlib_path" \
+                -cc "$cc_path" -c++ "$cxx_path" \
+                -no-retry-compilation -o "$(cygpath -w "$canary_root/canary.exe")" \
+                "$(cygpath -w "$canary_root/canary.v")"
+          ) 2>&1 | tee -a "$artifact_dir/v3-standalone-build.log"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          if [[ "${pipeline_status[0]}" -ne 0 || "${pipeline_status[1]}" -ne 0 ]]; then
+            echo "Standalone V3 canary command/tee failed: ${pipeline_status[*]}" >&2
+            exit 1
+          fi
+          [[ "$("$canary_root/canary.exe")" == 'v3-cache-canary-ok' ]]
+          printf 'v3=%s\nsource=%s\nsha256=%s\nsize=%s\n' \
+            "$v3" "$vroot/vlib/v3/v3.v" "$(< "$sha_file")" "$(< "$size_file")" \
+            > "$artifact_dir/v3-standalone-paths.txt"
+          printf '%s\n' 'OWNER_RESULT label=v3-standalone status=success' \
+            >> "$artifact_dir/owners.log"
+          echo "V3_GNU_STANDALONE=$(cygpath -w "$v3")" >> "$GITHUB_ENV"
+
+      - name: Save strict standalone V3 cache
+        id: save_v3_cache
+        if: steps.restore_v3_cache.outputs.cache-hit != 'true' && steps.v3_standalone.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}\v3-cache-${{ matrix.lane }}
+          key: ${{ steps.restore_v3_cache.outputs.cache-primary-key }}
+
+      - name: Verify V1 and standalone V3 dynamic and static macro selection
+        id: macros
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          unset CFLAGS LDFLAGS VFLAGS
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          state_base="$runner_temp/vglyph-state-${{ matrix.lane }}"
+          workspace="$(cygpath -u "$GITHUB_WORKSPACE")"
+          home_posix="$(cygpath -u "$HOME")"
+          vexe="$(cygpath -u "$V_GNU_EXE")"
+          v3="$(cygpath -u "$V3_GNU_STANDALONE")"
+          vroot="$(cygpath -u "$V_GNU_ROOT")"
+          vlib_path="$(cygpath -w "$vroot/vlib")|@vlib|@vmodules"
+          cc_path="$(command -v '${{ matrix.cc }}')"
+          cxx_path="$(command -v '${{ matrix.cxx }}')"
+          conditional_file='windows_static_linker_d_v_static_pkgconfig.c.v'
+
+          prepare_state() {
+            local name="$1"
+            local root="$state_base/macro-$name"
+            case "$root" in
+              "$runner_temp"/*) ;;
+              *) echo "State escaped RUNNER_TEMP: $root" >&2; return 1 ;;
+            esac
+            [[ "$root" != "$workspace"* && "$root" != "$home_posix"* ]]
+            rm -rf "$root"
+            mkdir -p "$root/vmodules/vglyph" "$root/vcache" "$root/v3cache" \
+              "$root/vtmp" "$root/cwd"
+            git archive HEAD | tar -x -C "$root/vmodules/vglyph"
+            test -f "$root/vmodules/vglyph/v.mod"
+            printf '%s\n' "$root"
+          }
+
+          assert_selected_files() {
+            local log="$1"
+            local expected_conditional="$2"
+            local basenames="$runner_temp/$(basename "$log").basenames"
+            : > "$basenames"
+            while IFS= read -r line; do
+              line="${line%$'\r'}"
+              line="${line%\"}"
+              line="${line#\"}"
+              base="${line##*/}"
+              base="${base##*\\}"
+              [[ -n "$base" ]] && printf '%s\n' "$base" >> "$basenames"
+            done < "$log"
+            if [[ "$(grep -Fxc 'c_bindings.v' "$basenames")" -ne 1 ]]; then
+              echo "Source manifest $log does not contain c_bindings.v exactly once" >&2
+              return 1
+            fi
+            if [[ "$(grep -Fxc "$conditional_file" "$basenames")" -ne "$expected_conditional" ]]; then
+              echo "Conditional source cardinality mismatch in $log" >&2
+              return 1
+            fi
+            rm -f "$basenames"
+          }
+
+          for generation in v1 v3; do
+            for linkage in dynamic static; do
+              label="$generation-$linkage"
+              state_root="$(prepare_state "$label")"
+              module_root="$state_root/vmodules"
+              module_dir="$module_root/vglyph"
+              neutral="$state_root/cwd"
+              log="$artifact_dir/macros-$label.log"
+              files_log="$artifact_dir/files-$label.log"
+              printf '%s\n' "$state_root" > "$artifact_dir/macro-$label.state-root.txt"
+              if [[ "$generation" == v1 ]]; then
+                runner="$vexe"
+                generation_args=(-old-compiler)
+              else
+                runner="$v3"
+                generation_args=(-gc none -path "$vlib_path")
+              fi
+              common_args=("${generation_args[@]}" -no-parallel -cc "$cc_path" -c++ "$cxx_path"
+                -no-retry-compilation)
+              if [[ "$linkage" == static ]]; then
+                common_args+=(-cflags -static)
+                expected_conditional=1
+              else
+                expected_conditional=0
+              fi
+              set +e
+              (
+                cd "$neutral"
+                VMODULES="$(cygpath -w "$module_root")" \
+                  VCACHE="$(cygpath -w "$state_root/vcache")" \
+                  V3CACHE="$(cygpath -w "$state_root/v3cache")" \
+                  VTMP="$(cygpath -w "$state_root/vtmp")" \
+                  VJOBS=1 "$runner" "${common_args[@]}" -print-v-files \
+                    "$(cygpath -w "$module_dir")"
+              ) 2>&1 | tee "$files_log"
+              pipeline_status=("${PIPESTATUS[@]}")
+              set -e
+              if [[ "${pipeline_status[0]}" -ne 0 || "${pipeline_status[1]}" -ne 0 ]]; then
+                echo "$label source manifest command/tee failed: ${pipeline_status[*]}" >&2
+                exit 1
+              fi
+              test -s "$files_log"
+              assert_selected_files "$files_log" "$expected_conditional"
+              set +e
+              (
+                cd "$neutral"
+                VMODULES="$(cygpath -w "$module_root")" \
+                  VCACHE="$(cygpath -w "$state_root/vcache")" \
+                  V3CACHE="$(cygpath -w "$state_root/v3cache")" \
+                  VTMP="$(cygpath -w "$state_root/vtmp")" \
+                  VJOBS=1 "$runner" "${common_args[@]}" -showcc -show-c-output \
+                    test "$(cygpath -w "$module_dir/_windows_static_link_test.v")"
+              ) 2>&1 | tee "$log"
+              pipeline_status=("${PIPESTATUS[@]}")
+              set -e
+              if [[ "${pipeline_status[0]}" -ne 0 || "${pipeline_status[1]}" -ne 0 ]]; then
+                echo "$label macro owner command/tee failed: ${pipeline_status[*]}" >&2
+                exit 1
+              fi
+              if [[ "$(grep -Foc '1 passed, 1 total' "$log")" -ne 1 ]]; then
+                echo "$label macro owner summary cardinality mismatch" >&2
+                exit 1
+              fi
+              if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|panic' "$log"; then
+                echo "$label macro owner emitted a forbidden no-op/failure marker" >&2
+                exit 1
+              fi
+              printf 'OWNER_RESULT label=macro-%s status=success\n' "$label" \
+                >> "$artifact_dir/owners.log"
+            done
+          done
+
+      - name: Build and run isolated V1 and standalone V3 probes
+        id: probes
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          unset CFLAGS LDFLAGS VFLAGS
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          state_base="$runner_temp/vglyph-state-${{ matrix.lane }}"
+          workspace="$(cygpath -u "$GITHUB_WORKSPACE")"
+          home_posix="$(cygpath -u "$HOME")"
+          probe="$(cygpath -u "$VG_PROBE")"
+          parser="$(cygpath -u "$VG_LINK_PARSER")"
+          vexe="$(cygpath -u "$V_GNU_EXE")"
+          v3="$(cygpath -u "$V3_GNU_STANDALONE")"
+          vroot="$(cygpath -u "$V_GNU_ROOT")"
+          vlib_path="$(cygpath -w "$vroot/vlib")|@vlib|@vmodules"
+          cc_path="$(readlink -f "$(command -v '${{ matrix.cc }}')")"
+          cxx_path="$(readlink -f "$(command -v '${{ matrix.cxx }}')")"
+
+          prepare_generation_state() {
+            local generation="$1"
+            local root="$state_base/probe-$generation"
+            case "$root" in
+              "$runner_temp"/*) ;;
+              *) echo "State escaped RUNNER_TEMP: $root" >&2; return 1 ;;
+            esac
+            [[ "$root" != "$workspace"* && "$root" != "$home_posix"* ]]
+            rm -rf "$root"
+            mkdir -p "$root/vmodules/vglyph" "$root/vcache" "$root/v3cache" \
+              "$root/vtmp" "$root/cwd" "$root/output"
+            git archive HEAD | tar -x -C "$root/vmodules/vglyph"
+            test -f "$root/vmodules/vglyph/v.mod"
+            printf '%s\n' "$root"
+          }
+
+          reset_generation_caches() {
+            local root="$1"
+            local cache_name
+            case "$root" in
+              "$state_base"/probe-v1|"$state_base"/probe-v3) ;;
+              *) echo "Refusing to reset unexpected state root: $root" >&2; return 1 ;;
+            esac
+            for cache_name in vcache v3cache vtmp; do
+              rm -rf -- "$root/$cache_name"
+              mkdir -p "$root/$cache_name"
+            done
+          }
+
+          compile_and_run() {
+            local generation="$1"
+            local linkage="$2"
+            local mode="$3"
+            local pass="$4"
+            local state_root="$5"
+            local output="$6"
+            local label="$generation-$linkage-$mode"
+            [[ -n "$pass" ]] && label="-$label-$pass"
+            label="${label#-}"
+            local log="$artifact_dir/$label.log"
+            local runner="$vexe"
+            local -a args=(-old-compiler)
+            if [[ "$generation" == v3 ]]; then
+              runner="$v3"
+              args=(-gc none -path "$vlib_path")
+            fi
+            args+=(-no-parallel -cc "$cc_path" -c++ "$cxx_path"
+              -no-retry-compilation -showcc -show-c-output)
+            if [[ "$linkage" == static ]]; then
+              args+=(-cflags -static)
+            fi
+            if [[ "$mode" == prod ]]; then
+              args+=(-prod)
+            fi
+            args+=(-o "$(cygpath -w "$output")" "$(cygpath -w "$probe")")
+            printf '%s\n' "$state_root" > "$artifact_dir/$label.state-root.txt"
+            set +e
+            (
+              cd "$state_root/cwd"
+              VMODULES="$(cygpath -w "$state_root/vmodules")" \
+                VCACHE="$(cygpath -w "$state_root/vcache")" \
+                V3CACHE="$(cygpath -w "$state_root/v3cache")" \
+                VTMP="$(cygpath -w "$state_root/vtmp")" \
+                VJOBS=1 "$runner" "${args[@]}"
+            ) 2>&1 | tee "$log"
+            pipeline_status=("${PIPESTATUS[@]}")
+            set -e
+            if [[ "${pipeline_status[0]}" -ne 0 || "${pipeline_status[1]}" -ne 0 ]]; then
+              echo "$label probe command/tee failed: ${pipeline_status[*]}" >&2
+              return 1
+            fi
+            test -x "$output"
+            runtime_stdout="$("$output")"
+            [[ -z "$runtime_stdout" ]]
+            python "$parser" --generation "$generation" --linkage "$linkage" \
+              --log "$log" --cc "$cc_path" --cxx "$cxx_path" --output "$output" \
+              --record "$artifact_dir/$label.final-link.json"
+            sha256sum "$output" | cut -d' ' -f1 \
+              > "$artifact_dir/$label.binary-sha256.txt"
+            if [[ "$linkage" == static ]]; then
+              cp "$output" "$artifact_dir/$label.snapshot.exe"
+            fi
+            printf 'OWNER_RESULT label=probe-%s status=success\n' "$label" \
+              >> "$artifact_dir/owners.log"
+          }
+
+          for generation in v1 v3; do
+            state_root="$(prepare_generation_state "$generation")"
+            dev_output="$state_root/output/dev.exe"
+            prod_output="$state_root/output/prod.exe"
+            compile_and_run "$generation" dynamic dev cold "$state_root" "$dev_output"
+            compile_and_run "$generation" dynamic dev warm "$state_root" "$dev_output"
+            reset_generation_caches "$state_root"
+            rm -f -- "$dev_output"
+            compile_and_run "$generation" static dev cold "$state_root" "$dev_output"
+            compile_and_run "$generation" static dev warm "$state_root" "$dev_output"
+            compile_and_run "$generation" dynamic dev again "$state_root" "$dev_output"
+            compile_and_run "$generation" dynamic prod '' "$state_root" "$prod_output"
+            compile_and_run "$generation" static prod '' "$state_root" "$prod_output"
+          done
+
+      - name: Verify V1 and standalone V3 static probe imports
+        id: imports
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          object_tool="$(command -v '${{ matrix.object_tool }}')"
+          for generation in v1 v3; do
+            for variant in static-dev-cold static-dev-warm static-prod; do
+              label="$generation-$variant"
+              executable="$artifact_dir/$label.snapshot.exe"
+              imports="$artifact_dir/$label.imports.txt"
+              test -x "$executable"
+              set +e
+              "$object_tool" -p "$executable" | tee "$imports"
+              pipeline_status=("${PIPESTATUS[@]}")
+              set -e
+              if [[ "${pipeline_status[0]}" -ne 0 || "${pipeline_status[1]}" -ne 0 ]]; then
+                echo "$label import command/tee failed: ${pipeline_status[*]}" >&2
+                exit 1
+              fi
+              if grep -Eqi 'DLL Name:.*(pango|glib|gobject|intl|iconv|harfbuzz|freetype|stdc\+\+|libc\+\+)' "$imports"; then
+                echo "Static dependency probe imports a forbidden dependency DLL: $executable" >&2
+                exit 1
+              fi
+              printf 'OWNER_RESULT label=imports-%s status=success\n' "$label" \
+                >> "$artifact_dir/owners.log"
+            done
+          done
+
+      - name: Finalize bounded Windows GNU evidence
+        id: evidence
+        if: always()
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          mkdir -p "$artifact_dir"
+          if [[ -n "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 ! -type f -print -quit)" ]]; then
+            echo 'Evidence directory contains a non-regular top-level entry' >&2
+            exit 1
+          fi
+          if [[ -n "$(find "$artifact_dir" -mindepth 2 -print -quit)" ]]; then
+            echo 'Evidence directory contains nested content' >&2
+            exit 1
+          fi
+          for generation in v1 v3; do
+            for label in static-dev-cold static-dev-warm static-prod; do
+              snapshot="$artifact_dir/$generation-$label.snapshot.exe"
+              if [[ -e "$snapshot" || -L "$snapshot" ]]; then
+                [[ -f "$snapshot" && ! -L "$snapshot" ]]
+                rm -f -- "$snapshot"
+              fi
+            done
+          done
+          if [[ -n "$(find "$artifact_dir" -maxdepth 1 -type f -name '*.exe' -print -quit)" ]]; then
+            echo 'Evidence directory contains an unexpected executable' >&2
+            exit 1
+          fi
+
+          complete=true
+          required_outcomes=(
+            '${{ steps.provenance.outcome }}'
+            '${{ steps.prepare.outcome }}'
+            '${{ steps.restore_v3_cache.outcome }}'
+            '${{ steps.v3_standalone.outcome }}'
+            '${{ steps.macros.outcome }}'
+            '${{ steps.probes.outcome }}'
+            '${{ steps.imports.outcome }}'
+          )
+          for outcome in "${required_outcomes[@]}"; do
+            [[ "$outcome" == success ]] || complete=false
+          done
+          if [[ '${{ steps.restore_v3_cache.outputs.cache-hit }}' == true ]]; then
+            [[ '${{ steps.save_v3_cache.outcome }}' == skipped ]] || complete=false
+          else
+            [[ '${{ steps.save_v3_cache.outcome }}' == success ]] || complete=false
+          fi
+          {
+            printf 'provenance=%s\n' '${{ steps.provenance.outcome }}'
+            printf 'prepare=%s\n' '${{ steps.prepare.outcome }}'
+            printf 'restore_v3_cache=%s\n' '${{ steps.restore_v3_cache.outcome }}'
+            printf 'v3_cache_hit=%s\n' '${{ steps.restore_v3_cache.outputs.cache-hit }}'
+            printf 'v3_standalone=%s\n' '${{ steps.v3_standalone.outcome }}'
+            printf 'save_v3_cache=%s\n' '${{ steps.save_v3_cache.outcome }}'
+            printf 'macros=%s\n' '${{ steps.macros.outcome }}'
+            printf 'probes=%s\n' '${{ steps.probes.outcome }}'
+            printf 'imports=%s\n' '${{ steps.imports.outcome }}'
+          } > "$artifact_dir/step-outcomes.txt"
+          printf 'EVIDENCE_RESULT ready=true complete=%s\n' "$complete" \
+            > "$artifact_dir/evidence-status.txt"
+
+          manifest="$artifact_dir/manifest.tsv"
+          : > "$manifest"
+          mapfile -t files < <(
+            find "$artifact_dir" -maxdepth 1 -type f \
+              ! -name 'manifest.tsv' ! -name 'manifest.meta' \
+              -printf '%f\n' | LC_ALL=C sort
+          )
+          if [[ "${#files[@]}" -eq 0 || "${#files[@]}" -gt 96 ]]; then
+            echo "Evidence file count out of bounds: ${#files[@]}" >&2
+            exit 1
+          fi
+          total_bytes=0
+          for file in "${files[@]}"; do
+            if [[ "$file" =~ ^(owners\.log|packages\.txt|dependency-chain-packages\.txt|pkgconfig-static-libs\.txt|pkgconfig-paths\.txt|tool-paths\.txt|v3-standalone-build\.log|v3-standalone-paths\.txt|step-outcomes\.txt|evidence-status\.txt)$ ]]; then
+              :
+            elif [[ "$file" =~ ^(macros|files)-v[13]-(dynamic|static)\.log$ ]]; then
+              :
+            elif [[ "$file" =~ ^macro-v[13]-(dynamic|static)\.state-root\.txt$ ]]; then
+              :
+            elif [[ "$file" =~ ^v[13]-(dynamic-dev-(cold|warm|again)|static-dev-(cold|warm)|dynamic-prod|static-prod)\.(log|final-link\.json|state-root\.txt|binary-sha256\.txt|imports\.txt)$ ]]; then
+              :
+            else
+              echo "Evidence file is outside the allowlist: $file" >&2
+              exit 1
+            fi
+            size="$(stat -c '%s' "$artifact_dir/$file")"
+            if [[ "$size" -gt 4194304 ]]; then
+              echo "Evidence file exceeds 4 MiB: $file ($size)" >&2
+              exit 1
+            fi
+            total_bytes=$((total_bytes + size))
+            sha="$(sha256sum "$artifact_dir/$file" | cut -d' ' -f1)"
+            printf '%s\t%s\t%s\n' "$sha" "$size" "$file" >> "$manifest"
+          done
+          if [[ "$total_bytes" -gt 25165824 ]]; then
+            echo "Evidence exceeds 24 MiB: $total_bytes" >&2
+            exit 1
+          fi
+          manifest_size="$(stat -c '%s' "$manifest")"
+          manifest_sha="$(sha256sum "$manifest" | cut -d' ' -f1)"
+          printf 'complete=%s\nfile_count=%s\ntotal_bytes=%s\nmanifest_size=%s\nmanifest_sha256=%s\n' \
+            "$complete" "${#files[@]}" "$total_bytes" "$manifest_size" "$manifest_sha" \
+            > "$artifact_dir/manifest.meta"
+
+      - name: Upload Windows GNU evidence
+        id: upload
+        if: ${{ always() && steps.evidence.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vglyph-issue74-${{ matrix.lane }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\vglyph-issue74-${{ matrix.lane }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce Windows GNU owners and evidence
+        id: gate
+        if: always()
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          if [[ -n "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 ! -type f -print -quit)" ]]; then
+            echo 'Evidence directory contains a non-regular top-level entry at gate' >&2
+            exit 1
+          fi
+          if [[ -n "$(find "$artifact_dir" -mindepth 2 -print -quit)" ]]; then
+            echo 'Evidence directory contains nested content at gate' >&2
+            exit 1
+          fi
+          outcomes=(
+            'provenance=${{ steps.provenance.outcome }}'
+            'prepare=${{ steps.prepare.outcome }}'
+            'restore_v3_cache=${{ steps.restore_v3_cache.outcome }}'
+            'v3_standalone=${{ steps.v3_standalone.outcome }}'
+            'macros=${{ steps.macros.outcome }}'
+            'probes=${{ steps.probes.outcome }}'
+            'imports=${{ steps.imports.outcome }}'
+            'evidence=${{ steps.evidence.outcome }}'
+            'upload=${{ steps.upload.outcome }}'
+          )
+          for outcome in "${outcomes[@]}"; do
+            if [[ "$outcome" != *=success ]]; then
+              echo "Required step did not succeed: $outcome" >&2
+              exit 1
+            fi
+          done
+          if [[ '${{ steps.restore_v3_cache.outputs.cache-hit }}' == true ]]; then
+            [[ '${{ steps.save_v3_cache.outcome }}' == skipped ]]
+          else
+            [[ '${{ steps.save_v3_cache.outcome }}' == success ]]
+          fi
+
+          required_base=(
+            owners.log packages.txt dependency-chain-packages.txt
+            pkgconfig-static-libs.txt pkgconfig-paths.txt
+            tool-paths.txt v3-standalone-build.log v3-standalone-paths.txt
+            step-outcomes.txt evidence-status.txt manifest.tsv manifest.meta
+          )
+          for file in "${required_base[@]}"; do
+            test -s "$artifact_dir/$file"
+          done
+          expected_owners=(provenance prepare v3-standalone)
+          for generation in v1 v3; do
+            for linkage in dynamic static; do
+              expected_owners+=("macro-$generation-$linkage")
+              test -s "$artifact_dir/macros-$generation-$linkage.log"
+              test -s "$artifact_dir/files-$generation-$linkage.log"
+              test -s "$artifact_dir/macro-$generation-$linkage.state-root.txt"
+              if [[ "$(grep -Foc '1 passed, 1 total' \
+                  "$artifact_dir/macros-$generation-$linkage.log")" -ne 1 ]]; then
+                echo "Summary cardinality mismatch in $generation-$linkage macro log" >&2
+                exit 1
+              fi
+              if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|panic' \
+                "$artifact_dir/macros-$generation-$linkage.log"; then
+                echo "Forbidden owner marker in $generation-$linkage macro log" >&2
+                exit 1
+              fi
+            done
+            for label in dynamic-dev-cold dynamic-dev-warm static-dev-cold static-dev-warm dynamic-dev-again dynamic-prod static-prod; do
+              expected_owners+=("probe-$generation-$label")
+              test -s "$artifact_dir/$generation-$label.log"
+              test -s "$artifact_dir/$generation-$label.final-link.json"
+              test -s "$artifact_dir/$generation-$label.state-root.txt"
+              test -s "$artifact_dir/$generation-$label.binary-sha256.txt"
+            done
+            for label in static-dev-cold static-dev-warm static-prod; do
+              expected_owners+=("imports-$generation-$label")
+              test -s "$artifact_dir/$generation-$label.imports.txt"
+            done
+            reference_root="$artifact_dir/$generation-dynamic-dev-cold.state-root.txt"
+            for label in dynamic-dev-warm static-dev-cold static-dev-warm dynamic-dev-again dynamic-prod static-prod; do
+              cmp -s "$reference_root" "$artifact_dir/$generation-$label.state-root.txt"
+            done
+            python - "$artifact_dir" "$generation" <<'PY'
+          import json
+          import os
+          import sys
+
+          root, generation = sys.argv[1:]
+          dev = ('dynamic-dev-cold', 'dynamic-dev-warm', 'static-dev-cold',
+                 'static-dev-warm', 'dynamic-dev-again')
+          prod = ('dynamic-prod', 'static-prod')
+          for labels in (dev, prod):
+              outputs = set()
+              for label in labels:
+                  path = os.path.join(root, f'{generation}-{label}.final-link.json')
+                  with open(path, encoding='utf-8') as handle:
+                      record = json.load(handle)
+                  outputs.add(record['output_basename'])
+              if len(outputs) != 1:
+                  raise SystemExit(f'{generation} same-output sequence mismatch: {outputs!r}')
+          PY
+          done
+          [[ "${#expected_owners[@]}" -eq 27 ]]
+          if [[ "$(wc -l < "$artifact_dir/owners.log")" -ne "${#expected_owners[@]}" ]]; then
+            echo 'Owner result line count mismatch' >&2
+            exit 1
+          fi
+          for label in "${expected_owners[@]}"; do
+            if [[ "$(grep -Fxc "OWNER_RESULT label=$label status=success" \
+                "$artifact_dir/owners.log")" -ne 1 ]]; then
+              echo "Owner result cardinality mismatch: $label" >&2
+              exit 1
+            fi
+          done
+          if [[ -n "$(LC_ALL=C sort "$artifact_dir/owners.log" | uniq -d)" ]]; then
+            echo 'Duplicate owner result lines detected' >&2
+            exit 1
+          fi
+          grep -Fxq 'EVIDENCE_RESULT ready=true complete=true' \
+            "$artifact_dir/evidence-status.txt"
+          [[ "$(wc -l < "$artifact_dir/step-outcomes.txt")" -eq 9 ]]
+          expected_step_outcomes=(
+            'provenance=success'
+            'prepare=success'
+            'restore_v3_cache=success'
+            'v3_cache_hit=${{ steps.restore_v3_cache.outputs.cache-hit }}'
+            'v3_standalone=success'
+            'save_v3_cache=${{ steps.save_v3_cache.outcome }}'
+            'macros=success'
+            'probes=success'
+            'imports=success'
+          )
+          for status_line in "${expected_step_outcomes[@]}"; do
+            [[ "$(grep -Fxc "$status_line" "$artifact_dir/step-outcomes.txt")" -eq 1 ]]
+          done
+          [[ "$(wc -l < "$artifact_dir/manifest.meta")" -eq 5 ]]
+          grep -Fxq 'complete=true' "$artifact_dir/manifest.meta"
+          expected_file_count="$(sed -n 's/^file_count=//p' "$artifact_dir/manifest.meta")"
+          expected_total_bytes="$(sed -n 's/^total_bytes=//p' "$artifact_dir/manifest.meta")"
+          expected_manifest_size="$(sed -n 's/^manifest_size=//p' "$artifact_dir/manifest.meta")"
+          expected_manifest_sha="$(sed -n 's/^manifest_sha256=//p' "$artifact_dir/manifest.meta")"
+          [[ "$expected_file_count" =~ ^[0-9]+$ && "$expected_file_count" -eq 84 ]]
+          [[ "$expected_total_bytes" =~ ^[0-9]+$ ]]
+          [[ "$expected_manifest_size" =~ ^[0-9]+$ ]]
+          [[ "$expected_manifest_sha" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$(wc -l < "$artifact_dir/manifest.tsv")" -eq "$expected_file_count" ]]
+          [[ "$(stat -c '%s' "$artifact_dir/manifest.tsv")" == "$expected_manifest_size" ]]
+          [[ "$(sha256sum "$artifact_dir/manifest.tsv" | cut -d' ' -f1)" == "$expected_manifest_sha" ]]
+          seen="$runner_temp/vglyph-manifest-seen-${{ matrix.lane }}.txt"
+          : > "$seen"
+          manifest_total_bytes=0
+          while IFS=$'\t' read -r expected_sha expected_size file extra; do
+            [[ -n "$expected_sha" && -n "$expected_size" && -n "$file" && -z "$extra" ]]
+            [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]]
+            [[ "$expected_size" =~ ^[0-9]+$ ]]
+            [[ "$file" != */* && "$file" != *\\* && "$file" != '.' && "$file" != '..' ]]
+            [[ -f "$artifact_dir/$file" && ! -L "$artifact_dir/$file" ]]
+            [[ "$(stat -c '%s' "$artifact_dir/$file")" == "$expected_size" ]]
+            [[ "$(sha256sum "$artifact_dir/$file" | cut -d' ' -f1)" == "$expected_sha" ]]
+            manifest_total_bytes=$((manifest_total_bytes + expected_size))
+            printf '%s\n' "$file" >> "$seen"
+          done < "$artifact_dir/manifest.tsv"
+          [[ -z "$(LC_ALL=C sort "$seen" | uniq -d)" ]]
+          [[ "$manifest_total_bytes" -eq "$expected_total_bytes" ]]
+          actual="$runner_temp/vglyph-manifest-actual-${{ matrix.lane }}.txt"
+          find "$artifact_dir" -maxdepth 1 -type f \
+            ! -name 'manifest.tsv' ! -name 'manifest.meta' \
+            -printf '%f\n' | LC_ALL=C sort > "$actual"
+          LC_ALL=C sort -o "$seen" "$seen"
+          [[ "$(wc -l < "$actual")" -eq "$expected_file_count" ]]
+          cmp -s "$seen" "$actual"
