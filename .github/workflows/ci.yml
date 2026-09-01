@@ -256,13 +256,6 @@ jobs:
             [[ "$runtime_stdout" == 'vglyph-compiler-route-ok' ]]
           done
 
-      - name: Verify markdown
-        run: |
-          rm -rf "$RUNNER_TEMP/vglyph-vmodules-docs"
-          mkdir -p "$RUNNER_TEMP/vglyph-vmodules-docs"
-          ln -s "$PWD" "$RUNNER_TEMP/vglyph-vmodules-docs/vglyph"
-          VMODULES="$RUNNER_TEMP/vglyph-vmodules-docs" v check-md README.md docs
-
       - name: Run tests with V1 and V3
         run: |
           set -euo pipefail
@@ -305,8 +298,8 @@ jobs:
               base="${base##*\\}"
               [[ -n "$base" ]] && printf '%s\n' "$base" >> "$basenames"
             done < "$manifest"
-            if [[ "$(grep -Fxc 'c_bindings.v' "$basenames")" -ne 1 ]]; then
-              echo "Legacy $selection selection did not contain c_bindings.v exactly once" >&2
+            if [[ "$(grep -Fxc 'c_bindings.c.v' "$basenames")" -ne 1 ]]; then
+              echo "Legacy $selection selection did not contain c_bindings.c.v exactly once" >&2
               return 1
             fi
             if [[ "$(grep -Fxc "$conditional_file" "$basenames")" -ne 0 ]]; then
@@ -389,6 +382,13 @@ jobs:
               example_index=$((example_index + 1))
             done
           done
+
+      - name: Verify markdown
+        run: |
+          rm -rf "$RUNNER_TEMP/vglyph-vmodules-docs"
+          mkdir -p "$RUNNER_TEMP/vglyph-vmodules-docs"
+          ln -s "$PWD" "$RUNNER_TEMP/vglyph-vmodules-docs/vglyph"
+          VMODULES="$RUNNER_TEMP/vglyph-vmodules-docs" v check-md README.md docs
 
       - name: Verify formatting
         run: |
@@ -795,8 +795,8 @@ jobs:
               if ($line) { [IO.Path]::GetFileName($line) }
             } | Sort-Object -Unique
           )
-          if (@($basenames | Where-Object { $_ -ceq 'c_bindings.v' }).Count -ne 1) {
-            throw "MSVC V1 dynamic manifest must contain c_bindings.v exactly once"
+          if (@($basenames | Where-Object { $_ -ceq 'c_bindings.c.v' }).Count -ne 1) {
+            throw "MSVC V1 dynamic manifest must contain c_bindings.c.v exactly once"
           }
           if (@($basenames | Where-Object {
               $_ -ceq 'windows_static_linker_d_v_static_pkgconfig.c.v'
@@ -1565,8 +1565,8 @@ jobs:
               [[ -n "$base" ]] && printf '%s\n' "$base" >> "$basenames"
             done < "$log"
             LC_ALL=C sort -u -o "$basenames" "$basenames"
-            if [[ "$(grep -Fxc 'c_bindings.v' "$basenames")" -ne 1 ]]; then
-              echo "Source manifest $log does not contain c_bindings.v exactly once" >&2
+            if [[ "$(grep -Fxc 'c_bindings.c.v' "$basenames")" -ne 1 ]]; then
+              echo "Source manifest $log does not contain c_bindings.c.v exactly once" >&2
               return 1
             fi
             if [[ "$(grep -Fxc "$conditional_file" "$basenames")" -ne "$expected_conditional" ]]; then

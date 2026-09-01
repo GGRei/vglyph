@@ -978,11 +978,3 @@ pub fn ime_overlay_register_callbacks(handle voidptr, on_marked IMEOverlayMarked
 	}
 	C.vglyph_overlay_register_callbacks(handle, callbacks)
 }
-
-// Static Windows consumers must disable the GLib/GObject DLL import annotations.
-$if windows {
-	$if $d('v:static_pkgconfig', false) {
-		#flag -DGLIB_STATIC_COMPILATION
-		#flag -DGOBJECT_STATIC_COMPILATION
-	}
-}
