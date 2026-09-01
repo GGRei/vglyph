@@ -525,8 +525,6 @@ jobs:
     env:
       VFLAGS: -no-parallel
       VJOBS: 1
-      VCPKG_BINARY_CACHE: ${{ runner.temp }}\vcpkg-binary-cache
-      VCPKG_BINARY_SOURCES: clear;files,${{ runner.temp }}\vcpkg-binary-cache,readwrite
     steps:
       - name: Checkout vglyph
         uses: actions/checkout@v6
@@ -622,6 +620,9 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
             throw "Could not resolve the vcpkg checkout revision at $vcpkgRoot"
           }
+          $binaryCache = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+          "VCPKG_BINARY_CACHE=$binaryCache" | Add-Content -Path $env:GITHUB_ENV
+          "VCPKG_BINARY_SOURCES=clear;files,$binaryCache,readwrite" | Add-Content -Path $env:GITHUB_ENV
           & $vcpkgExe version
           "revision=$revision" | Add-Content -Path $env:GITHUB_OUTPUT
 
@@ -629,7 +630,7 @@ jobs:
         id: restore-vcpkg-cache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.VCPKG_BINARY_CACHE }}
+          path: ${{ runner.temp }}\vcpkg-binary-cache
           key: windows-vcpkg-x64-windows-vglyph-native-${{ steps.vcpkg.outputs.revision }}-deps-v2
           restore-keys: |
             windows-vcpkg-x64-windows-vglyph-native-
@@ -645,7 +646,7 @@ jobs:
         if: steps.restore-vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ${{ env.VCPKG_BINARY_CACHE }}
+          path: ${{ runner.temp }}\vcpkg-binary-cache
           key: ${{ steps.restore-vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Expose pkg-config paths
