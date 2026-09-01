@@ -256,18 +256,6 @@ jobs:
             [[ "$runtime_stdout" == 'vglyph-compiler-route-ok' ]]
           done
 
-      - name: Verify formatting
-        run: |
-          fmt_files=()
-          while IFS= read -r file; do
-            fmt_files+=("$file")
-          done < <(git ls-files '*.v' '*.vsh' | sort)
-          if [ "${#fmt_files[@]}" -eq 0 ]; then
-            echo "No tracked V files found"
-            exit 1
-          fi
-          v fmt -verify -inprocess "${fmt_files[@]}"
-
       - name: Verify markdown
         run: |
           rm -rf "$RUNNER_TEMP/vglyph-vmodules-docs"
@@ -401,6 +389,18 @@ jobs:
               example_index=$((example_index + 1))
             done
           done
+
+      - name: Verify formatting
+        run: |
+          fmt_files=()
+          while IFS= read -r file; do
+            fmt_files+=("$file")
+          done < <(git ls-files '*.v' '*.vsh' | sort)
+          if [ "${#fmt_files[@]}" -eq 0 ]; then
+            echo "No tracked V files found"
+            exit 1
+          fi
+          v fmt -verify -inprocess "${fmt_files[@]}"
 
   macos:
     name: CI Checks / macOS
@@ -1564,6 +1564,7 @@ jobs:
               base="${base##*\\}"
               [[ -n "$base" ]] && printf '%s\n' "$base" >> "$basenames"
             done < "$log"
+            LC_ALL=C sort -u -o "$basenames" "$basenames"
             if [[ "$(grep -Fxc 'c_bindings.v' "$basenames")" -ne 1 ]]; then
               echo "Source manifest $log does not contain c_bindings.v exactly once" >&2
               return 1
