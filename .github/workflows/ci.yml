@@ -34,7 +34,7 @@ concurrency:
 env:
   CORE_PKG_CONFIG_MODULES: freetype2 harfbuzz fribidi fontconfig pango pangoft2 gobject-2.0 glib-2.0
   V_REPOSITORY: https://github.com/GGRei/v.git
-  V_VERSION: 0d637893eccd3ac34607ac3c9b9ffc0808375745
+  V_VERSION: cc9bf37045eb69706539f81f4cb1f2eb619cde39
   LEGACY_V_REPOSITORY: https://github.com/vlang/v.git
   LEGACY_V_VERSION: ddc9c99fda9b46d4a1e3d8fe674a4395bb311d96
   LEGACY_VC_REPOSITORY: https://github.com/vlang/vc.git
