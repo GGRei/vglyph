@@ -39,6 +39,9 @@ env:
   LEGACY_V_VERSION: ddc9c99fda9b46d4a1e3d8fe674a4395bb311d96
   LEGACY_VC_REPOSITORY: https://github.com/vlang/vc.git
   LEGACY_VC_VERSION: 9977696dabd010a2d0c34b258aa0b0cfba05d569
+  LEGACY_TCC_REPOSITORY: https://github.com/vlang/tccbin.git
+  LEGACY_TCC_VERSION: 696c1d84ad12e3a5b68b50fb0210819ed3d56bb8
+  LEGACY_TCC_SOURCE_VERSION: f8bd136d198bdafe71342517fa325da2e243dc68
 
 jobs:
   linux:
@@ -104,7 +107,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/v-legacy
-          key: linux-v-compiler-${{ env.LEGACY_V_VERSION }}-vc-${{ env.LEGACY_VC_VERSION }}-schema2
+          key: linux-v-compiler-${{ env.LEGACY_V_VERSION }}-vc-${{ env.LEGACY_VC_VERSION }}-tcc-${{ env.LEGACY_TCC_VERSION }}-schema3
 
       - name: Install legacy V for dynamic compatibility
         shell: bash
@@ -112,12 +115,39 @@ jobs:
           set -euo pipefail
           expected_revision='${{ env.LEGACY_V_VERSION }}'
           expected_vc_revision='${{ env.LEGACY_VC_VERSION }}'
+          expected_tcc_revision='${{ env.LEGACY_TCC_VERSION }}'
+          expected_tcc_source_revision='${{ env.LEGACY_TCC_SOURCE_VERSION }}'
+          expected_tcc_version='tcc version 0.9.28rc 2025-02-13 HEAD@f8bd136d (x86_64 Linux)'
           v_checkout="$RUNNER_TEMP/v-legacy"
+          tcc_checkout="$v_checkout/thirdparty/tcc"
+
+          legacy_tcc_is_valid() {
+            local checkout="$1"
+            local actual_revision
+            local actual_source_revision
+            local declared_version
+            local runtime_version
+            actual_revision="$(git -C "$checkout" rev-parse HEAD 2>/dev/null || true)"
+            [[ "$actual_revision" == "$expected_tcc_revision" ]] || return 1
+            [[ -f "$checkout/build_source_hash.txt" && ! -L "$checkout/build_source_hash.txt" ]] || return 1
+            actual_source_revision="$(< "$checkout/build_source_hash.txt")"
+            [[ "$actual_source_revision" == "$expected_tcc_source_revision" ]] || return 1
+            [[ -f "$checkout/build_version.txt" && ! -L "$checkout/build_version.txt" ]] || return 1
+            declared_version="$(< "$checkout/build_version.txt")"
+            [[ "$declared_version" == "$expected_tcc_version" ]] || return 1
+            [[ -x "$checkout/tcc.exe" && ! -L "$checkout/tcc.exe" ]] || return 1
+            [[ -s "$checkout/lib/libgc.a" && ! -L "$checkout/lib/libgc.a" ]] || return 1
+            runtime_version="$("$checkout/tcc.exe" --version 2>/dev/null || true)"
+            [[ "$runtime_version" == "$expected_tcc_version" ]]
+          }
+
           if [[ -x "$v_checkout/v" ]]; then
             cached_revision="$(git -C "$v_checkout" rev-parse HEAD 2>/dev/null || true)"
             cached_vc_revision="$(git -C "$v_checkout/vc" rev-parse HEAD 2>/dev/null || true)"
-            if [[ "$cached_revision" != "$expected_revision" || "$cached_vc_revision" != "$expected_vc_revision" ]]; then
-              echo "Cached legacy V/VC revisions $cached_revision/$cached_vc_revision do not match $expected_revision/$expected_vc_revision; rebuilding."
+            if [[ "$cached_revision" != "$expected_revision" \
+                || "$cached_vc_revision" != "$expected_vc_revision" ]] \
+                || ! legacy_tcc_is_valid "$tcc_checkout"; then
+              echo 'Cached legacy V/VC/TCC provenance is incomplete or mismatched; rebuilding.'
               rm -rf "$v_checkout"
             fi
           fi
@@ -131,14 +161,25 @@ jobs:
             git -C "$v_checkout/vc" remote add origin '${{ env.LEGACY_VC_REPOSITORY }}'
             git -C "$v_checkout/vc" fetch --depth 1 origin "$expected_vc_revision"
             git -C "$v_checkout/vc" checkout --detach FETCH_HEAD
+            git init "$tcc_checkout"
+            git -C "$tcc_checkout" remote add origin '${{ env.LEGACY_TCC_REPOSITORY }}'
+            git -C "$tcc_checkout" fetch --depth 1 origin "$expected_tcc_revision"
+            git -C "$tcc_checkout" checkout --detach FETCH_HEAD
+            legacy_tcc_is_valid "$tcc_checkout"
             make -C "$v_checkout" -j2 local=1
           fi
           actual_revision="$(git -C "$v_checkout" rev-parse HEAD)"
           actual_vc_revision="$(git -C "$v_checkout/vc" rev-parse HEAD)"
+          actual_tcc_revision="$(git -C "$tcc_checkout" rev-parse HEAD)"
           [[ "$actual_revision" == "$expected_revision" ]]
           [[ "$actual_vc_revision" == "$expected_vc_revision" ]]
+          [[ "$actual_tcc_revision" == "$expected_tcc_revision" ]]
+          legacy_tcc_is_valid "$tcc_checkout"
           "$v_checkout/v" version
-          printf 'V=%s\nVC=%s\n' "$actual_revision" "$actual_vc_revision"
+          printf 'V=%s\nVC=%s\nTCC=%s\nTCC_SOURCE=%s\nTCC_VERSION=%s\n' \
+            "$actual_revision" "$actual_vc_revision" "$actual_tcc_revision" \
+            "$(< "$tcc_checkout/build_source_hash.txt")" \
+            "$(< "$tcc_checkout/build_version.txt")"
           echo "V_LEGACY=$v_checkout/v" >> "$GITHUB_ENV"
 
       - name: Save legacy V compiler cache
@@ -813,6 +854,7 @@ jobs:
           if ($text -match 'Running macOS V3 compiler in process:') {
             throw "Windows V3 stub unexpectedly entered the embedded compiler"
           }
+          exit 0
 
       - name: Run tests
         shell: pwsh
@@ -1007,8 +1049,8 @@ jobs:
           mkdir -p "$artifact_dir"
           : > "$artifact_dir/owners.log"
 
-          cc_path="$(command -v '${{ matrix.cc }}')"
-          cxx_path="$(command -v '${{ matrix.cxx }}')"
+          cc_path="$(command -v '${{ matrix.cc }}.exe')"
+          cxx_path="$(command -v '${{ matrix.cxx }}.exe')"
           pkg_config_path="$(command -v pkg-config)"
           object_tool_path="$(command -v '${{ matrix.object_tool }}')"
           for tool_path in "$cc_path" "$cxx_path" "$pkg_config_path" "$object_tool_path"; do
@@ -1384,8 +1426,8 @@ jobs:
           artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
           vexe="$(cygpath -u "$V_GNU_EXE")"
           vroot="$(cygpath -u "$V_GNU_ROOT")"
-          cc_path="$(command -v '${{ matrix.cc }}')"
-          cxx_path="$(command -v '${{ matrix.cxx }}')"
+          cc_path="$(command -v '${{ matrix.cc }}.exe')"
+          cxx_path="$(command -v '${{ matrix.cxx }}.exe')"
           cache_dir="$runner_temp/v3-cache-${{ matrix.lane }}"
           cached_v3="$cache_dir/v3.exe"
           v3="$vroot/v3-vglyph-${{ matrix.lane }}.exe"
@@ -1489,8 +1531,8 @@ jobs:
           v3="$(cygpath -u "$V3_GNU_STANDALONE")"
           vroot="$(cygpath -u "$V_GNU_ROOT")"
           vlib_path="$(cygpath -w "$vroot/vlib")|@vlib|@vmodules"
-          cc_path="$(command -v '${{ matrix.cc }}')"
-          cxx_path="$(command -v '${{ matrix.cxx }}')"
+          cc_path="$(command -v '${{ matrix.cc }}.exe')"
+          cxx_path="$(command -v '${{ matrix.cxx }}.exe')"
           conditional_file='windows_static_linker_d_v_static_pkgconfig.c.v'
 
           prepare_state() {
