@@ -102,6 +102,26 @@ vcpkg install pango freetype
 pacman -S mingw-w64-x86_64-pango mingw-w64-x86_64-freetype
 ```
 
+For static dependency linking with MSYS2's GNU-style GCC or Clang drivers, use
+a V compiler that exposes `v:static_pkgconfig` and supports `#linker c++`:
+
+```bash
+v -cc gcc -cflags '-static' your_app.v
+# or
+v -cc clang -cflags '-static' your_app.v
+```
+
+When V selects global static pkg-config resolution, VGlyph enables the
+GLib/GObject static-consumer definitions and requests the matching C++ driver
+for the final native link. V still compiles C sources as C. Use `-c++` only to
+override V's default matching driver; do not hardcode a C++ runtime library.
+
+These commands request static pkg-config dependency linkage. They do not
+guarantee a fully static or dependency-free Windows executable: the available
+static archives and the completeness of their pkg-config metadata remain
+toolchain responsibilities. Dynamic builds, MSVC builds, and non-Windows
+builds retain their existing behavior.
+
 ## 🚀 Quickstart
 
 Use the `TextSystem` for the easiest integration. It handles initialization,
