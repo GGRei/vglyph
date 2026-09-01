@@ -217,8 +217,9 @@ pub fn (mut ctx Context) layout_rich_text(rt RichText, cfg TextConfig) !Layout {
 
 	mut current_idx := 0
 	for run in rt.runs {
-		full_text.write_string(run.text)
-		encoded_len := run.text.len // Byte length
+		run_text := run.text
+		full_text.write_string(run_text)
+		encoded_len := run_text.len // Byte length
 		valid_runs << RunRange{
 			start: current_idx
 			end:   current_idx + encoded_len
