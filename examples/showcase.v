@@ -1416,8 +1416,9 @@ fn frame(mut app ShowcaseApp) {
 		scroll_ratio := app.scroll_y / app.max_scroll
 		thumb_h := f32(app.window_h) * (f32(app.window_h) / (app.max_scroll + f32(app.window_h)))
 		thumb_y := scroll_ratio * (f32(app.window_h) - thumb_h)
-		app.ctx.draw_rect_filled(f32(app.window_w) - 10, thumb_y + app.scroll_y * 0 // fixed position overlay
-		 , 6, thumb_h, gg.Color{100, 100, 100, 150})
+		// fixed position overlay
+		app.ctx.draw_rect_filled(f32(app.window_w) - 10, thumb_y + app.scroll_y * 0, 6,
+			thumb_h, gg.Color{100, 100, 100, 150})
 	}
 
 	// Accessibility / Atlas Commit
