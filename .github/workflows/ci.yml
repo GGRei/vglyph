@@ -927,6 +927,7 @@ jobs:
             cxx: g++
             family: gcc
             object_tool: objdump
+            lld_package: ''
           - lane: ucrt64-clang
             msystem: UCRT64
             compiler_package: mingw-w64-ucrt-x86_64-clang
@@ -935,6 +936,7 @@ jobs:
             cxx: clang++
             family: clang
             object_tool: objdump
+            lld_package: mingw-w64-ucrt-x86_64-lld
           - lane: clang64-clang
             msystem: CLANG64
             compiler_package: mingw-w64-clang-x86_64-clang
@@ -943,6 +945,7 @@ jobs:
             cxx: clang++
             family: clang
             object_tool: llvm-objdump
+            lld_package: ''
     steps:
       - name: Checkout vglyph
         uses: actions/checkout@v6
@@ -1034,6 +1037,7 @@ jobs:
             git
             python
             ${{ matrix.compiler_package }}
+            ${{ matrix.lld_package }}
             ${{ matrix.dependency_prefix }}-pkgconf
             ${{ matrix.dependency_prefix }}-pango
             ${{ matrix.dependency_prefix }}-freetype
@@ -1152,6 +1156,23 @@ jobs:
           printf 'cc=%s\ncxx=%s\npkg_config=%s\nobject_tool=%s\n' \
             "$cc_path" "$cxx_path" "$pkg_config_path" "$object_tool_path" \
             | tee "$artifact_dir/tool-paths.txt"
+          if [[ -n '${{ matrix.lld_package }}' ]]; then
+            pacman -Q '${{ matrix.lld_package }}' | tee -a "$artifact_dir/packages.txt"
+            lld_path="$(command -v ld.lld.exe)"
+            case "$lld_path" in
+              "$MINGW_PREFIX"/bin/*) ;;
+              *) echo "LLD escaped $MINGW_PREFIX/bin: $lld_path" >&2; exit 1 ;;
+            esac
+            [[ -x "$lld_path" ]]
+            clang_version_num="$(sed -n 's/.*clang version \([^[:space:]]*\).*/\1/p' <<< "$cc_version" | head -n 1)"
+            lld_version="$("$lld_path" --version 2>&1)"
+            lld_version_num="$(sed -n 's/^LLD \([^[:space:]]*\).*/\1/p' <<< "$lld_version" | head -n 1)"
+            [[ -n "$clang_version_num" && "$lld_version_num" == "$clang_version_num" ]]
+            lld_route="$(printf '' | "$cc_path" -### -fuse-ld=lld -x c - -o NUL 2>&1)"
+            printf '%s\n' "$lld_version" "$lld_route"
+            grep -Eiq '[/\\]ld\.lld(\.exe)?' <<< "$lld_route"
+            printf 'lld=%s\n' "$lld_path" | tee -a "$artifact_dir/tool-paths.txt"
+          fi
           printf '%s\n' 'OWNER_RESULT label=provenance status=success' \
             >> "$artifact_dir/owners.log"
           echo "VG_ARTIFACT_DIR=$(cygpath -w "$artifact_dir")" >> "$GITHUB_ENV"
@@ -1278,6 +1299,9 @@ jobs:
           parser = argparse.ArgumentParser()
           parser.add_argument('--generation', choices=('v1', 'v3'), required=True)
           parser.add_argument('--linkage', choices=('dynamic', 'static'), required=True)
+          parser.add_argument('--mode', choices=('dev', 'prod'), required=True)
+          parser.add_argument('--lane', choices=('ucrt64-gcc', 'ucrt64-clang', 'clang64-clang'),
+                              required=True)
           parser.add_argument('--log', required=True)
           parser.add_argument('--cc', required=True)
           parser.add_argument('--cxx', required=True)
@@ -1389,6 +1413,15 @@ jobs:
               raise SystemExit('final argv contains no C source or object input')
           if any(token in ('-lstdc++', '-lc++') for token in argv):
               raise SystemExit('named C++ runtime flag is forbidden')
+          if any(command['expanded'][1:].count('-fuse-ld=lld')
+                 for command in commands if command['compile_only']):
+              raise SystemExit('LLD selection flag leaked into a compile-only command')
+          expected_lld_count = (1 if cfg.generation == 'v3' and cfg.mode == 'prod'
+                                and cfg.lane == 'ucrt64-clang' else 0)
+          if argv.count('-fuse-ld=lld') != expected_lld_count:
+              raise SystemExit(
+                  f'LLD selection cardinality mismatch: {argv.count("-fuse-ld=lld")}'
+              )
           for macro in ('-DGLIB_STATIC_COMPILATION', '-DGOBJECT_STATIC_COMPILATION'):
               expected_count = 1 if cfg.linkage == 'static' else 0
               actual_count = define_count(argv, macro[2:])
@@ -1743,6 +1776,9 @@ jobs:
             fi
             if [[ "$mode" == prod ]]; then
               args+=(-prod)
+              if [[ "$generation" == v3 && '${{ matrix.lane }}' == ucrt64-clang ]]; then
+                args+=(-ldflags -fuse-ld=lld)
+              fi
             fi
             args+=(-o "$(cygpath -w "$output")" "$(cygpath -w "$probe")")
             printf '%s\n' "$state_root" > "$artifact_dir/$label.state-root.txt"
@@ -1765,6 +1801,7 @@ jobs:
             runtime_stdout="$("$output")"
             [[ -z "$runtime_stdout" ]]
             python "$parser" --generation "$generation" --linkage "$linkage" \
+              --mode "$mode" --lane '${{ matrix.lane }}' \
               --log "$log" --cc "$cc_path" --cxx "$cxx_path" --output "$output" \
               --record "$artifact_dir/$label.final-link.json"
             sha256sum "$output" | cut -d' ' -f1 \
@@ -1806,11 +1843,34 @@ jobs:
               imports="$artifact_dir/$label.imports.txt"
               test -x "$executable"
               set +e
-              "$object_tool" -p "$executable" | tee "$imports"
+              "$object_tool" -p "$executable" \
+                | awk '/DLL Name:/ {
+                    if ($0 !~ /^[[:space:]]*DLL Name:[[:space:]]*[^[:space:]]+[[:space:]]*$/) {
+                      exit 42
+                    }
+                    sub(/^[[:space:]]*DLL Name:[[:space:]]*/, "DLL Name: ")
+                    sub(/[[:space:]]*$/, "")
+                    print
+                  }' \
+                | tee "$imports"
               pipeline_status=("${PIPESTATUS[@]}")
               set -e
-              if [[ "${pipeline_status[0]}" -ne 0 || "${pipeline_status[1]}" -ne 0 ]]; then
+              if [[ "${#pipeline_status[@]}" -ne 3 \
+                || "${pipeline_status[0]}" -ne 0 \
+                || "${pipeline_status[1]}" -ne 0 \
+                || "${pipeline_status[2]}" -ne 0 ]]; then
                 echo "$label import command/tee failed: ${pipeline_status[*]}" >&2
+                exit 1
+              fi
+              import_count="$(wc -l < "$imports")"
+              import_size="$(stat -c '%s' "$imports")"
+              if [[ "$import_count" -lt 1 || "$import_count" -gt 256 \
+                || "$import_size" -gt 32768 ]]; then
+                echo "$label compact import evidence is out of bounds: $import_count lines, $import_size bytes" >&2
+                exit 1
+              fi
+              if grep -Eqv '^DLL Name: [^[:space:]]+$' "$imports"; then
+                echo "$label compact import evidence contains a malformed line" >&2
                 exit 1
               fi
               if grep -Eqi 'DLL Name:.*(pango|glib|gobject|intl|iconv|harfbuzz|freetype|stdc\+\+|libc\+\+)' "$imports"; then
@@ -1947,6 +2007,15 @@ jobs:
           set -euo pipefail
           runner_temp="$(cygpath -u "$RUNNER_TEMP")"
           artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          assert_files_equal() {
+            python - "$1" "$2" <<'PY'
+          from pathlib import Path
+          import sys
+
+          if Path(sys.argv[1]).read_bytes() != Path(sys.argv[2]).read_bytes():
+              raise SystemExit('byte comparison mismatch')
+          PY
+          }
           if [[ -n "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 ! -type f -print -quit)" ]]; then
             echo 'Evidence directory contains a non-regular top-level entry at gate' >&2
             exit 1
@@ -2018,7 +2087,7 @@ jobs:
             done
             reference_root="$artifact_dir/$generation-dynamic-dev-cold.state-root.txt"
             for label in dynamic-dev-warm static-dev-cold static-dev-warm dynamic-dev-again dynamic-prod static-prod; do
-              cmp -s "$reference_root" "$artifact_dir/$generation-$label.state-root.txt"
+              assert_files_equal "$reference_root" "$artifact_dir/$generation-$label.state-root.txt"
             done
             python - "$artifact_dir" "$generation" <<'PY'
           import json
@@ -2108,4 +2177,4 @@ jobs:
             -printf '%f\n' | LC_ALL=C sort > "$actual"
           LC_ALL=C sort -o "$seen" "$seen"
           [[ "$(wc -l < "$actual")" -eq "$expected_file_count" ]]
-          cmp -s "$seen" "$actual"
+          assert_files_equal "$seen" "$actual"
