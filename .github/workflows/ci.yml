@@ -1668,8 +1668,8 @@ jobs:
           v3="$(cygpath -u "$V3_GNU_STANDALONE")"
           vroot="$(cygpath -u "$V_GNU_ROOT")"
           vlib_path="$(cygpath -w "$vroot/vlib")|@vlib|@vmodules"
-          cc_path="$(readlink -f "$(command -v '${{ matrix.cc }}')")"
-          cxx_path="$(readlink -f "$(command -v '${{ matrix.cxx }}')")"
+          cc_path="$(readlink -f "$(command -v '${{ matrix.cc }}.exe')")"
+          cxx_path="$(readlink -f "$(command -v '${{ matrix.cxx }}.exe')")"
 
           prepare_generation_state() {
             local generation="$1"
