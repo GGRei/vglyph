@@ -339,7 +339,7 @@ jobs:
               echo "Legacy owner $label did not emit exactly one successful summary" >&2
               return 1
             fi
-            if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|panic' "$log"; then
+            if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|\bpanic\b' "$log"; then
               echo "Legacy owner $label emitted a forbidden no-op/failure marker" >&2
               return 1
             fi
@@ -824,7 +824,7 @@ jobs:
           if (([regex]::Matches($ownerText, [regex]::Escape('1 passed, 1 total'))).Count -ne 1) {
             throw "MSVC V1 dynamic macro owner summary cardinality mismatch"
           }
-          if ($ownerText -match '(?im)\b0\s+total\b|no tests found|skipped|skipping|panic') {
+          if ($ownerText -match '(?im)\b0\s+total\b|no tests found|skipped|skipping|\bpanic\b') {
             throw "MSVC V1 dynamic macro owner emitted a forbidden no-op/failure marker"
           }
 
@@ -1642,7 +1642,7 @@ jobs:
                 echo "$label macro owner summary cardinality mismatch" >&2
                 exit 1
               fi
-              if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|panic' "$log"; then
+              if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|\bpanic\b' "$log"; then
                 echo "$label macro owner emitted a forbidden no-op/failure marker" >&2
                 exit 1
               fi
@@ -1980,7 +1980,7 @@ jobs:
                 echo "Summary cardinality mismatch in $generation-$linkage macro log" >&2
                 exit 1
               fi
-              if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|panic' \
+              if grep -Eiq '\b0[[:space:]]+total\b|no tests found|skipped|skipping|\bpanic\b' \
                 "$artifact_dir/macros-$generation-$linkage.log"; then
                 echo "Forbidden owner marker in $generation-$linkage macro log" >&2
                 exit 1
