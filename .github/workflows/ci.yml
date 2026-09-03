@@ -1257,6 +1257,24 @@ jobs:
               return base[:-4] if base.endswith('.exe') else base
 
 
+          def define_count(tokens, macro):
+              combined = '-D' + macro
+              count = tokens.count(combined)
+              if any(token.startswith(combined + '=') for token in tokens):
+                  raise SystemExit(f'assigned value is not allowed for -D{macro}')
+              for index, token in enumerate(tokens):
+                  if token != '-D':
+                      continue
+                  if index + 1 >= len(tokens):
+                      raise SystemExit('dangling -D in final invocation')
+                  operand = tokens[index + 1]
+                  if operand.startswith(macro + '='):
+                      raise SystemExit(f'assigned value is not allowed for -D {macro}')
+                  if operand == macro:
+                      count += 1
+              return count
+
+
           parser = argparse.ArgumentParser()
           parser.add_argument('--generation', choices=('v1', 'v3'), required=True)
           parser.add_argument('--linkage', choices=('dynamic', 'static'), required=True)
@@ -1373,8 +1391,9 @@ jobs:
               raise SystemExit('named C++ runtime flag is forbidden')
           for macro in ('-DGLIB_STATIC_COMPILATION', '-DGOBJECT_STATIC_COMPILATION'):
               expected_count = 1 if cfg.linkage == 'static' else 0
-              if argv.count(macro) != expected_count:
-                  raise SystemExit(f'{macro} cardinality mismatch: {argv.count(macro)}')
+              actual_count = define_count(argv, macro[2:])
+              if actual_count != expected_count:
+                  raise SystemExit(f'{macro} cardinality mismatch: {actual_count}')
           if cfg.linkage == 'static':
               if argv.count('-static') != 1:
                   raise SystemExit('static final argv must contain exactly one -static token')
