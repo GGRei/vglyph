@@ -34,7 +34,7 @@ concurrency:
 env:
   CORE_PKG_CONFIG_MODULES: freetype2 harfbuzz fribidi fontconfig pango pangoft2 gobject-2.0 glib-2.0
   V_REPOSITORY: https://github.com/GGRei/v.git
-  V_VERSION: 7280d51a401423434e09e24823c0f3f6a548dc9b
+  V_VERSION: 122d2514bfbee89cad51e8cf51764825357605aa
   LEGACY_V_REPOSITORY: https://github.com/vlang/v.git
   LEGACY_V_VERSION: ddc9c99fda9b46d4a1e3d8fe674a4395bb311d96
   LEGACY_VC_REPOSITORY: https://github.com/vlang/vc.git
@@ -404,11 +404,13 @@ jobs:
             echo "No tracked V files found"
             exit 1
           fi
+          # Keep source style on the established formatter; compiler and markdown validation use V_CURRENT.
+          "$V_LEGACY" version
           set +e
-          v fmt -verify -inprocess "${fmt_files[@]}"
+          "$V_LEGACY" fmt -verify -inprocess "${fmt_files[@]}"
           format_rc=$?
           if [ "$format_rc" -ne 0 ]; then
-            timeout --kill-after=10s 120s v fmt -diff -inprocess "${fmt_files[@]}" 2>&1 |
+            timeout --kill-after=10s 120s "$V_LEGACY" fmt -diff -inprocess "${fmt_files[@]}" 2>&1 |
               head -c 67108865 > "$RUNNER_TEMP/vglyph-vfmt.diff"
             diagnostic_status=("${PIPESTATUS[@]}")
             diff_bytes=$(wc -c < "$RUNNER_TEMP/vglyph-vfmt.diff")
@@ -1062,7 +1064,6 @@ jobs:
           path-type: minimal
           install: >-
             git
-            python
             ${{ matrix.compiler_package }}
             ${{ matrix.lld_package }}
             ${{ matrix.dependency_prefix }}-pkgconf
@@ -1212,7 +1213,6 @@ jobs:
           runner_temp="$(cygpath -u "$RUNNER_TEMP")"
           artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
           probe="$runner_temp/vglyph-probe-${{ matrix.lane }}.v"
-          parser="$runner_temp/vglyph-final-link-parser-${{ matrix.lane }}.py"
           signature='fn test_windows_static_consumer_macros_follow_pkgconfig_mode() {'
           if [[ "$(grep -Fxc "$signature" _windows_static_link_test.v)" -ne 1 ]]; then
             echo 'Macro owner definition cardinality mismatch' >&2
@@ -1228,268 +1228,9 @@ jobs:
             '    ctx.free()' \
             '}' > "$probe"
           test -s "$probe"
-          cat > "$parser" <<'PY'
-          import argparse
-          import json
-          import os
-          import re
-          import subprocess
-
-
-          def split_args(text):
-              args = []
-              current = []
-              quote = None
-              has_arg = False
-              i = 0
-              while i < len(text):
-                  ch = text[i]
-                  if quote is None and ch in ' \t\r\n':
-                      if has_arg:
-                          args.append(''.join(current))
-                          current = []
-                          has_arg = False
-                      i += 1
-                      continue
-                  if ch in "'\"":
-                      if quote is None:
-                          quote = ch
-                          has_arg = True
-                          i += 1
-                          continue
-                      if quote == ch:
-                          quote = None
-                          i += 1
-                          continue
-                  if ch == '\\' and quote != "'" and i + 1 < len(text):
-                      nxt = text[i + 1]
-                      escapable = nxt in ('"', '\\') if quote == '"' else nxt in ' \t\r\n\'"\\'
-                      if escapable:
-                          current.append(nxt)
-                          has_arg = True
-                          i += 2
-                          continue
-                  current.append(ch)
-                  has_arg = True
-                  i += 1
-              if quote is not None:
-                  raise ValueError('unterminated quote in logged argv')
-              if has_arg:
-                  args.append(''.join(current))
-              return args
-
-
-          def normalized_rsp(path):
-              return path.replace('\\', '/').strip('"').lower()
-
-
-          def normalized_driver(path):
-              raw = path.strip('"')
-              if not (raw.startswith('/') or re.fullmatch(r'[A-Za-z]:[\\/].+', raw)):
-                  raise SystemExit(f'compiler driver is not absolute: {path!r}')
-              completed = subprocess.run(
-                  ('cygpath', '-aw', raw),
-                  check=True,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.PIPE,
-                  text=True,
-              )
-              canonical = completed.stdout.strip().replace('\\', '/').lower()
-              if canonical.endswith('.exe'):
-                  canonical = canonical[:-4]
-              return canonical
-
-
-          def driver_basename(path):
-              base = os.path.basename(path.replace('\\', '/')).lower()
-              return base[:-4] if base.endswith('.exe') else base
-
-
-          def define_count(tokens, macro):
-              combined = '-D' + macro
-              count = tokens.count(combined)
-              if any(token.startswith(combined + '=') for token in tokens):
-                  raise SystemExit(f'assigned value is not allowed for -D{macro}')
-              for index, token in enumerate(tokens):
-                  if token != '-D':
-                      continue
-                  if index + 1 >= len(tokens):
-                      raise SystemExit('dangling -D in final invocation')
-                  operand = tokens[index + 1]
-                  if operand.startswith(macro + '='):
-                      raise SystemExit(f'assigned value is not allowed for -D {macro}')
-                  if operand == macro:
-                      count += 1
-              return count
-
-
-          parser = argparse.ArgumentParser()
-          parser.add_argument('--generation', choices=('v1', 'v3'), required=True)
-          parser.add_argument('--linkage', choices=('dynamic', 'static'), required=True)
-          parser.add_argument('--mode', choices=('dev', 'prod'), required=True)
-          parser.add_argument('--lane', choices=('ucrt64-gcc', 'ucrt64-clang', 'clang64-clang'),
-                              required=True)
-          parser.add_argument('--log', required=True)
-          parser.add_argument('--cc', required=True)
-          parser.add_argument('--cxx', required=True)
-          parser.add_argument('--output', required=True)
-          parser.add_argument('--record', required=True)
-          cfg = parser.parse_args()
-
-          with open(cfg.log, encoding='utf-8', errors='replace') as handle:
-              lines = handle.read().splitlines()
-
-          responses = []
-          for index, line in enumerate(lines):
-              v1 = re.fullmatch(r'> C compiler response file "(.*)":', line)
-              v3 = re.fullmatch(r'  > C\+\+ linker response file "(.*)":', line)
-              if v1:
-                  if index + 1 >= len(lines):
-                      raise SystemExit('V1 response header has no payload')
-                  responses.append((normalized_rsp(v1.group(1)), lines[index + 1], 'v1'))
-              elif v3:
-                  payload = []
-                  for following in lines[index + 1:]:
-                      if following.startswith(('"', "'")):
-                          payload.append(following)
-                      elif payload:
-                          break
-                  if not payload:
-                      raise SystemExit('V3 response header has no payload')
-                  responses.append((normalized_rsp(v3.group(1)), '\n'.join(payload), 'v3'))
-
-          commands = []
-          for index, line in enumerate(lines):
-              if line.startswith('> C compiler cmd: '):
-                  raw = line[len('> C compiler cmd: '):]
-              elif line.startswith('  > ') and not line.startswith('  > C++ linker response file '):
-                  raw = line[len('  > '):]
-              else:
-                  continue
-              tokens = split_args(raw)
-              if not tokens or '--version' in tokens[1:]:
-                  continue
-              response_tokens = [token for token in tokens[1:] if token.startswith('@')]
-              transport = 'argv'
-              expanded = list(tokens)
-              response_path = ''
-              if response_tokens:
-                  if len(response_tokens) != 1:
-                      raise SystemExit(f'expected one response token, got {response_tokens!r}')
-                  if len(tokens) != 2:
-                      raise SystemExit('response-file invocation contains external argv beyond driver and @rsp')
-                  response_path = response_tokens[0][1:]
-                  matches = [item for item in responses
-                             if item[0] == normalized_rsp(response_path)
-                             and item[2] == cfg.generation]
-                  if len(matches) != 1:
-                      raise SystemExit(f'response header/path cardinality mismatch for {response_path!r}')
-                  expanded = [tokens[0]] + split_args(matches[0][1])
-                  transport = 'response'
-              output_values = [expanded[pos + 1] for pos, token in enumerate(expanded[:-1])
-                               if token == '-o']
-              commands.append({
-                  'index': index,
-                  'raw': raw,
-                  'driver': tokens[0],
-                  'driver_basename': driver_basename(tokens[0]),
-                  'transport': transport,
-                  'response_path': response_path,
-                  'expanded': expanded,
-                  'compile_only': '-c' in expanded[1:],
-                  'outputs': output_values,
-              })
-
-          output_basename = driver_basename(cfg.output)
-          expected_link_output = 'out' if cfg.generation == 'v3' else output_basename
-
-
-          def is_expected_output(value):
-              if cfg.generation == 'v3':
-                  return value == expected_link_output
-              return driver_basename(value) == expected_link_output
-
-
-          candidates = [command for command in commands
-                        if not command['compile_only']
-                        and sum(is_expected_output(value)
-                                for value in command['outputs']) == 1]
-          if len(candidates) != 1:
-              raise SystemExit(f'final-link candidate cardinality mismatch: {len(candidates)}')
-          selected = candidates[0]
-          compiler_commands = [command for command in commands
-                               if command['driver_basename'] in {
-                                   driver_basename(cfg.cc), driver_basename(cfg.cxx)
-                               } and not command['compile_only']]
-          if not compiler_commands or selected['index'] != compiler_commands[-1]['index']:
-              raise SystemExit('selected final link is not the last non-compile compiler command')
-
-          expected = cfg.cxx if cfg.linkage == 'static' else cfg.cc
-          selected_driver_real = normalized_driver(selected['driver'])
-          expected_driver_real = normalized_driver(expected)
-          if selected_driver_real != expected_driver_real:
-              raise SystemExit(
-                  f'final driver mismatch: {selected_driver_real!r} != {expected_driver_real!r}'
-              )
-          if selected['driver_basename'] != driver_basename(expected):
-              raise SystemExit('final driver basename mismatch')
-          argv = selected['expanded'][1:]
-          if argv.count('-o') != 1 or '-c' in argv:
-              raise SystemExit('final argv must contain one -o and no -c')
-          if not any(re.search(r'\.(?:c|o)$', token, re.IGNORECASE) for token in argv):
-              raise SystemExit('final argv contains no C source or object input')
-          if any(token in ('-lstdc++', '-lc++') for token in argv):
-              raise SystemExit('named C++ runtime flag is forbidden')
-          if any(command['expanded'][1:].count('-fuse-ld=lld')
-                 for command in commands if command['compile_only']):
-              raise SystemExit('LLD selection flag leaked into a compile-only command')
-          expected_lld_count = (1 if cfg.generation == 'v3' and cfg.mode == 'prod'
-                                and cfg.lane == 'ucrt64-clang' else 0)
-          if argv.count('-fuse-ld=lld') != expected_lld_count:
-              raise SystemExit(
-                  f'LLD selection cardinality mismatch: {argv.count("-fuse-ld=lld")}'
-              )
-          for macro in ('-DGLIB_STATIC_COMPILATION', '-DGOBJECT_STATIC_COMPILATION'):
-              expected_count = 1 if cfg.linkage == 'static' else 0
-              actual_count = define_count(argv, macro[2:])
-              if actual_count != expected_count:
-                  raise SystemExit(f'{macro} cardinality mismatch: {actual_count}')
-          if cfg.linkage == 'static':
-              if argv.count('-static') != 1:
-                  raise SystemExit('static final argv must contain exactly one -static token')
-              intl_positions = [index for index, token in enumerate(argv) if token == '-lintl']
-              iconv_positions = [index for index, token in enumerate(argv) if token == '-liconv']
-              if not intl_positions or len(iconv_positions) != 1:
-                  raise SystemExit('static closure must contain at least one -lintl and exactly one -liconv')
-              if intl_positions[-1] >= iconv_positions[0]:
-                  raise SystemExit('static closure must place the VGlyph -liconv fallback after every -lintl')
-          else:
-              if argv.count('-static') != 0:
-                  raise SystemExit('dynamic final argv contains -static')
-              if argv.count('-liconv') != 0:
-                  raise SystemExit('dynamic final argv contains -liconv')
-
-          record = {
-              'driver': selected_driver_real,
-              'driver_basename': selected['driver_basename'],
-              'expanded_argv': selected['expanded'],
-              'generation': cfg.generation,
-              'linkage': cfg.linkage,
-              'link_output_token': expected_link_output,
-              'output_basename': output_basename,
-              'response_path': selected['response_path'],
-              'transport': selected['transport'],
-          }
-          with open(cfg.record, 'w', encoding='utf-8', newline='\n') as handle:
-              json.dump(record, handle, sort_keys=True, separators=(',', ':'))
-              handle.write('\n')
-          print(json.dumps(record, sort_keys=True, separators=(',', ':')))
-          PY
-          chmod 700 "$parser"
           printf '%s\n' 'OWNER_RESULT label=prepare status=success' \
             >> "$artifact_dir/owners.log"
           echo "VG_PROBE=$(cygpath -w "$probe")" >> "$GITHUB_ENV"
-          echo "VG_LINK_PARSER=$(cygpath -w "$parser")" >> "$GITHUB_ENV"
 
       - name: Restore strict standalone V3 cache
         id: restore_v3_cache
@@ -1586,6 +1327,37 @@ jobs:
           printf 'v3=%s\nsource=%s\nsha256=%s\nsize=%s\n' \
             "$v3" "$vroot/vlib/v3/v3.v" "$(< "$sha_file")" "$(< "$size_file")" \
             > "$artifact_dir/v3-standalone-paths.txt"
+          helper_root="$runner_temp/vglyph-link-helper-${{ matrix.lane }}"
+          helper_source="$(cygpath -aw "$GITHUB_WORKSPACE/.github/workflows/issue74/verify_final_link.v")"
+          mkdir -p "$helper_root"
+          for helper_generation in v1 v3; do
+            helper_state="$helper_root/$helper_generation"
+            mkdir -p "$helper_state/cwd" "$helper_state/vmodules" "$helper_state/vcache" \
+              "$helper_state/v3cache" "$helper_state/vtmp"
+            if [[ "$helper_generation" == v1 ]]; then
+              helper_compiler=("$vexe" -old-compiler)
+            else
+              helper_compiler=("$v3")
+            fi
+            helper_exe="$helper_state/verify-final-link.exe"
+            (
+              cd "$helper_state/cwd"
+              export VMODULES="$(cygpath -w "$helper_state/vmodules")"
+              export VCACHE="$(cygpath -w "$helper_state/vcache")"
+              export V3CACHE="$(cygpath -w "$helper_state/v3cache")"
+              export VTMP="$(cygpath -w "$helper_state/vtmp")"
+              VJOBS=1 "${helper_compiler[@]}" -gc none -no-parallel -path "$vlib_path" \
+                -cc "$cc_path" -c++ "$cxx_path" -no-retry-compilation \
+                -o "$(cygpath -w "$helper_exe")" "$helper_source"
+              [[ -f "$helper_exe" && ! -L "$helper_exe" && -x "$helper_exe" ]]
+              VG_HELPER_CC="$(cygpath -aw "$cc_path")" \
+                VG_HELPER_CXX="$(cygpath -aw "$cxx_path")" \
+                VG_HELPER_SELFTEST_ROOT="$(cygpath -aw "$helper_state/selftest space")" \
+                "$helper_exe" --selftest
+            ) 2>&1 | tee -a "$artifact_dir/v3-standalone-build.log"
+            printf 'VG_LINK_HELPER_%s=%s\n' "${helper_generation^^}" \
+              "$(cygpath -w "$helper_exe")" >> "$GITHUB_ENV"
+          done
           printf '%s\n' 'OWNER_RESULT label=v3-standalone status=success' \
             >> "$artifact_dir/owners.log"
           echo "V3_GNU_STANDALONE=$(cygpath -w "$v3")" >> "$GITHUB_ENV"
@@ -1742,7 +1514,8 @@ jobs:
           workspace="$(cygpath -u "$GITHUB_WORKSPACE")"
           home_posix="$(cygpath -u "$HOME")"
           probe="$(cygpath -u "$VG_PROBE")"
-          parser="$(cygpath -u "$VG_LINK_PARSER")"
+          helper_v1="$(cygpath -u "$VG_LINK_HELPER_V1")"
+          helper_v3="$(cygpath -u "$VG_LINK_HELPER_V3")"
           vexe="$(cygpath -u "$V_GNU_EXE")"
           v3="$(cygpath -u "$V3_GNU_STANDALONE")"
           vroot="$(cygpath -u "$V_GNU_ROOT")"
@@ -1827,10 +1600,18 @@ jobs:
             test -x "$output"
             runtime_stdout="$("$output")"
             [[ -z "$runtime_stdout" ]]
-            python "$parser" --generation "$generation" --linkage "$linkage" \
+            local record="$artifact_dir/$label.final-link.json"
+            local cross_record="$state_base/helper-$label.final-link.json"
+            "$helper_v1" --generation "$generation" --linkage "$linkage" \
               --mode "$mode" --lane '${{ matrix.lane }}' \
-              --log "$log" --cc "$cc_path" --cxx "$cxx_path" --output "$output" \
-              --record "$artifact_dir/$label.final-link.json"
+              --log "$(cygpath -aw "$log")" --cc "$cc_path" --cxx "$cxx_path" \
+              --output "$(cygpath -aw "$output")" --record "$(cygpath -aw "$record")"
+            "$helper_v3" --generation "$generation" --linkage "$linkage" \
+              --mode "$mode" --lane '${{ matrix.lane }}' \
+              --log "$(cygpath -aw "$log")" --cc "$cc_path" --cxx "$cxx_path" \
+              --output "$(cygpath -aw "$output")" --record "$(cygpath -aw "$cross_record")"
+            "$helper_v1" compare-files "$(cygpath -aw "$record")" "$(cygpath -aw "$cross_record")"
+            "$helper_v3" compare-files "$(cygpath -aw "$record")" "$(cygpath -aw "$cross_record")"
             sha256sum "$output" | cut -d' ' -f1 \
               > "$artifact_dir/$label.binary-sha256.txt"
             if [[ "$linkage" == static ]]; then
@@ -2034,14 +1815,11 @@ jobs:
           set -euo pipefail
           runner_temp="$(cygpath -u "$RUNNER_TEMP")"
           artifact_dir="$runner_temp/vglyph-issue74-${{ matrix.lane }}"
+          helper_v1="$(cygpath -u "$VG_LINK_HELPER_V1")"
+          helper_v3="$(cygpath -u "$VG_LINK_HELPER_V3")"
           assert_files_equal() {
-            python - "$1" "$2" <<'PY'
-          from pathlib import Path
-          import sys
-
-          if Path(sys.argv[1]).read_bytes() != Path(sys.argv[2]).read_bytes():
-              raise SystemExit('byte comparison mismatch')
-          PY
+            "$helper_v1" compare-files "$(cygpath -aw "$1")" "$(cygpath -aw "$2")"
+            "$helper_v3" compare-files "$(cygpath -aw "$1")" "$(cygpath -aw "$2")"
           }
           if [[ -n "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 ! -type f -print -quit)" ]]; then
             echo 'Evidence directory contains a non-regular top-level entry at gate' >&2
@@ -2116,25 +1894,8 @@ jobs:
             for label in dynamic-dev-warm static-dev-cold static-dev-warm dynamic-dev-again dynamic-prod static-prod; do
               assert_files_equal "$reference_root" "$artifact_dir/$generation-$label.state-root.txt"
             done
-            python - "$artifact_dir" "$generation" <<'PY'
-          import json
-          import os
-          import sys
-
-          root, generation = sys.argv[1:]
-          dev = ('dynamic-dev-cold', 'dynamic-dev-warm', 'static-dev-cold',
-                 'static-dev-warm', 'dynamic-dev-again')
-          prod = ('dynamic-prod', 'static-prod')
-          for labels in (dev, prod):
-              outputs = set()
-              for label in labels:
-                  path = os.path.join(root, f'{generation}-{label}.final-link.json')
-                  with open(path, encoding='utf-8') as handle:
-                      record = json.load(handle)
-                  outputs.add(record['output_basename'])
-              if len(outputs) != 1:
-                  raise SystemExit(f'{generation} same-output sequence mismatch: {outputs!r}')
-          PY
+            "$helper_v1" same-output "$(cygpath -aw "$artifact_dir")" "$generation"
+            "$helper_v3" same-output "$(cygpath -aw "$artifact_dir")" "$generation"
           done
           [[ "${#expected_owners[@]}" -eq 27 ]]
           if [[ "$(wc -l < "$artifact_dir/owners.log")" -ne "${#expected_owners[@]}" ]]; then
