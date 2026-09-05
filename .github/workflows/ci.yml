@@ -34,7 +34,7 @@ concurrency:
 env:
   CORE_PKG_CONFIG_MODULES: freetype2 harfbuzz fribidi fontconfig pango pangoft2 gobject-2.0 glib-2.0
   V_REPOSITORY: https://github.com/GGRei/v.git
-  V_VERSION: 122d2514bfbee89cad51e8cf51764825357605aa
+  V_VERSION: c4402f6b6e834aaebf7ddd9bb02b4b51bdd533b6
   LEGACY_V_REPOSITORY: https://github.com/vlang/v.git
   LEGACY_V_VERSION: ddc9c99fda9b46d4a1e3d8fe674a4395bb311d96
   LEGACY_VC_REPOSITORY: https://github.com/vlang/vc.git
@@ -1332,7 +1332,6 @@ jobs:
           helper_sdk="$MINGW_PREFIX/include"
           [[ -d "$helper_sdk" && ! -L "$helper_sdk" \
             && -f "$helper_sdk/windows.h" && ! -L "$helper_sdk/windows.h" ]]
-          helper_sdk_cflags="-I\"$(cygpath -am "$helper_sdk")\""
           runner_memory_kib="$(powershell.exe -NoProfile -NonInteractive -Command \
             '$memory = Get-CimInstance Win32_OperatingSystem; [Console]::WriteLine("{0} {1}", $memory.TotalVisibleMemorySize, $memory.FreePhysicalMemory)' | tr -d '\r')"
           [[ "$runner_memory_kib" =~ ^[0-9]+\ [0-9]+$ ]]
@@ -1360,7 +1359,6 @@ jobs:
               export VTMP="$(cygpath -w "$helper_state/vtmp")"
               VJOBS=1 "${helper_compiler[@]}" -gc none -no-parallel -path "$vlib_path" \
                 -cc "$cc_path" -c++ "$cxx_path" -no-retry-compilation \
-                -cflags "$helper_sdk_cflags" \
                 -o "$(cygpath -w "$helper_exe")" "$helper_source"
               [[ -f "$helper_exe" && ! -L "$helper_exe" && -x "$helper_exe" ]]
               VG_HELPER_CC="$(cygpath -aw "$cc_path")" \

@@ -5,7 +5,8 @@ import json2
 
 $if windows {
 	// Use SDK declarations for the helper's Windows runtime dependencies.
-	#include <windows.h>
+	#preinclude <stdio.h>
+	#preinclude <windows.h>
 }
 
 // Tokenization, UTF-8 decoding, and bounded byte comparison are reused from
