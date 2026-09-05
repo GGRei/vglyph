@@ -136,20 +136,20 @@ import gg
 
 struct App {
 mut:
-	gg &gg.Context        = unsafe { nil }
+	gg &gg.Context = unsafe { nil }
 	ts &vglyph.TextSystem = unsafe { nil }
 }
 
 fn main() {
 	mut app := &App{}
 	app.gg = gg.new_context(
-		bg_color:     gg.white
-		width:        800
-		height:       600
+		bg_color: gg.white
+		width: 800
+		height: 600
 		window_title: 'VGlyph Demo'
-		init_fn:      init
-		frame_fn:     frame
-		user_data:    app
+		init_fn: init
+		frame_fn: frame
+		user_data: app
 	)
 	app.gg.run()
 }
@@ -167,7 +167,7 @@ fn frame(mut app App) {
 	app.ts.draw_text(100, 100, 'Hello VGlyph!', vglyph.TextConfig{
 		style: vglyph.TextStyle{
 			font_name: 'Sans Bold 30'
-			color:     gg.black
+			color: gg.black
 		}
 	}) or { println(err) }
 
