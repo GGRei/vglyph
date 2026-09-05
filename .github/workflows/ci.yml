@@ -1333,6 +1333,14 @@ jobs:
           [[ -d "$helper_sdk" && ! -L "$helper_sdk" \
             && -f "$helper_sdk/windows.h" && ! -L "$helper_sdk/windows.h" ]]
           helper_sdk_cflags="-I\"$(cygpath -am "$helper_sdk")\""
+          runner_memory_kib="$(powershell.exe -NoProfile -NonInteractive -Command \
+            '$memory = Get-CimInstance Win32_OperatingSystem; [Console]::WriteLine("{0} {1}", $memory.TotalVisibleMemorySize, $memory.FreePhysicalMemory)' | tr -d '\r')"
+          [[ "$runner_memory_kib" =~ ^[0-9]+\ [0-9]+$ ]]
+          read -r runner_total_kib runner_free_kib <<< "$runner_memory_kib"
+          [[ "$runner_total_kib" -gt 0 && "$runner_free_kib" -gt 0 \
+            && "$runner_free_kib" -le "$runner_total_kib" ]]
+          printf 'helper_runner_memory_total_kib=%s\nhelper_runner_memory_free_kib=%s\n' \
+            "$runner_total_kib" "$runner_free_kib" | tee -a "$artifact_dir/v3-standalone-build.log"
           mkdir -p "$helper_root"
           for helper_generation in v1 v3; do
             helper_state="$helper_root/$helper_generation"
@@ -1341,7 +1349,7 @@ jobs:
             if [[ "$helper_generation" == v1 ]]; then
               helper_compiler=("$vexe" -old-compiler)
             else
-              helper_compiler=("$v3")
+              helper_compiler=("$v3" -no-memory-limit)
             fi
             helper_exe="$helper_state/verify-final-link.exe"
             (
