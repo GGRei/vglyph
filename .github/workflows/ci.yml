@@ -1329,6 +1329,10 @@ jobs:
             > "$artifact_dir/v3-standalone-paths.txt"
           helper_root="$runner_temp/vglyph-link-helper-${{ matrix.lane }}"
           helper_source="$(cygpath -aw "$GITHUB_WORKSPACE/.github/workflows/issue74/verify_final_link.v")"
+          helper_sdk="$MINGW_PREFIX/include"
+          [[ -d "$helper_sdk" && ! -L "$helper_sdk" \
+            && -f "$helper_sdk/windows.h" && ! -L "$helper_sdk/windows.h" ]]
+          helper_sdk_cflags="-I\"$(cygpath -am "$helper_sdk")\""
           mkdir -p "$helper_root"
           for helper_generation in v1 v3; do
             helper_state="$helper_root/$helper_generation"
@@ -1348,6 +1352,7 @@ jobs:
               export VTMP="$(cygpath -w "$helper_state/vtmp")"
               VJOBS=1 "${helper_compiler[@]}" -gc none -no-parallel -path "$vlib_path" \
                 -cc "$cc_path" -c++ "$cxx_path" -no-retry-compilation \
+                -cflags "$helper_sdk_cflags" \
                 -o "$(cygpath -w "$helper_exe")" "$helper_source"
               [[ -f "$helper_exe" && ! -L "$helper_exe" && -x "$helper_exe" ]]
               VG_HELPER_CC="$(cygpath -aw "$cc_path")" \

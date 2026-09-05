@@ -3,6 +3,11 @@ module main
 import os
 import json2
 
+$if windows {
+	// Use SDK declarations for the helper's Windows runtime dependencies.
+	#include <windows.h>
+}
+
 // Tokenization, UTF-8 decoding, and bounded byte comparison are reused from
 // GUI's issue74 helper. The VGlyph verifier below retains its own link contract.
 const max_compare_file_size = u64(8 * 1024 * 1024)
@@ -70,9 +75,7 @@ fn same_file_identity(left os.Stat, right os.Stat) bool {
 }
 
 fn read_open_file_bounded(path string, ordinal int, expected_size int) ![]u8 {
-	mut file := os.open(path) or {
-		return error('compare-files input ${ordinal} open failed')
-	}
+	mut file := os.open(path) or { return error('compare-files input ${ordinal} open failed') }
 	defer {
 		file.close()
 	}
@@ -196,8 +199,7 @@ fn decode_utf8_replace(input []u8) string {
 		}
 		second := input[index + 1]
 		if !is_continuation(second) || (first == u8(0xe0) && second < u8(0xa0))
-			|| (first == u8(0xed) && second >= u8(0xa0))
-			|| (first == u8(0xf0) && second < u8(0x90))
+			|| (first == u8(0xed) && second >= u8(0xa0)) || (first == u8(0xf0) && second < u8(0x90))
 			|| (first == u8(0xf4) && second > u8(0x8f)) {
 			append_replacement(mut output)
 			index++
@@ -256,14 +258,12 @@ fn split_lines(text string) []string {
 		value := text[index]
 		if value == `\r` {
 			separator_size = if index + 1 < text.len && text[index + 1] == `\n` { 2 } else { 1 }
-		} else if value == `\n` || value == u8(0x0b) || value == u8(0x0c)
-			|| value == u8(0x1c) || value == u8(0x1d) || value == u8(0x1e) {
+		} else if value == `\n` || value == u8(0x0b) || value == u8(0x0c) || value == u8(0x1c)
+			|| value == u8(0x1d) || value == u8(0x1e) {
 			separator_size = 1
-		} else if value == u8(0xc2) && index + 1 < text.len
-			&& text[index + 1] == u8(0x85) {
+		} else if value == u8(0xc2) && index + 1 < text.len && text[index + 1] == u8(0x85) {
 			separator_size = 2
-		} else if value == u8(0xe2) && index + 2 < text.len
-			&& text[index + 1] == u8(0x80)
+		} else if value == u8(0xe2) && index + 2 < text.len && text[index + 1] == u8(0x80)
 			&& (text[index + 2] == u8(0xa8) || text[index + 2] == u8(0xa9)) {
 			separator_size = 3
 		}
@@ -429,8 +429,8 @@ fn normalize_arguments(args []string) ![]string {
 }
 
 fn parse_config(args []string) !LinkConfig {
-	names := ['--generation', '--linkage', '--mode', '--lane', '--log', '--cc', '--cxx',
-		'--output', '--record']
+	names := ['--generation', '--linkage', '--mode', '--lane', '--log', '--cc', '--cxx', '--output',
+		'--record']
 	if args.len != names.len * 2 {
 		return error('expected generation, linkage, mode, lane, log, cc, cxx, output and record')
 	}
@@ -534,7 +534,8 @@ fn parse_commands(lines []string, responses []LinkResponse, generation string) !
 			response_path = response_tokens[0][1..]
 			mut matches := []LinkResponse{}
 			for response in responses {
-				if response.path == normalized_rsp(response_path) && response.generation == generation {
+				if response.path == normalized_rsp(response_path)
+					&& response.generation == generation {
 					matches << response
 				}
 			}
@@ -734,8 +735,8 @@ fn same_output_cli(args []string) int {
 		eprintln('usage: verify_final_link same-output <directory> <v1|v3>')
 		return 2
 	}
-	check_output_group(args[0], args[1], ['dynamic-dev-cold', 'dynamic-dev-warm',
-		'static-dev-cold', 'static-dev-warm', 'dynamic-dev-again']) or {
+	check_output_group(args[0], args[1], ['dynamic-dev-cold', 'dynamic-dev-warm', 'static-dev-cold',
+		'static-dev-warm', 'dynamic-dev-again']) or {
 		eprintln(err.msg())
 		return 1
 	}
@@ -867,12 +868,14 @@ fn run_selftest() ! {
 
 	self_expect(normalize_arguments(['helper.exe', '--selftest'])! == ['--selftest'],
 		'V1 argv normalization')!
-	self_expect(normalize_arguments(['--selftest'])! == ['--selftest'],
-		'V3 argv normalization')!
-	self_expect(normalize_arguments(['helper.exe', 'compare-files', 'a', 'b'])! ==
-		['compare-files', 'a', 'b'], 'V1 compare argv')!
-	self_expect(normalize_arguments(['same-output', 'a', 'v3'])! ==
-		['same-output', 'a', 'v3'], 'V3 same-output argv')!
+	self_expect(normalize_arguments(['--selftest'])! == ['--selftest'], 'V3 argv normalization')!
+	self_expect(normalize_arguments(['helper.exe', 'compare-files', 'a', 'b'])! == [
+		'compare-files',
+		'a',
+		'b',
+	], 'V1 compare argv')!
+	self_expect(normalize_arguments(['same-output', 'a', 'v3'])! == ['same-output', 'a', 'v3'],
+		'V3 same-output argv')!
 	self_expect(split_words('"a b" "" \'c d\' x\\ y')! == ['a b', '', 'c d', 'x y'],
 		'quoted, empty and escaped argv')!
 	self_expect(split_words('"D:\\\\tmp\\\\a"')! == ['D:\\tmp\\a'], 'quoted backslashes')!
@@ -881,9 +884,9 @@ fn run_selftest() ! {
 	self_expect(split_lines('a\r\nb\rc\n') == ['a', 'b', 'c'], 'line endings')!
 
 	output := os.join_path(root, 'result output.exe')
-	cli_args := ['--generation', 'v1', '--linkage', 'dynamic', '--mode', 'dev',
-		'--lane', 'ucrt64-gcc', '--log', left, '--cc', cc, '--cxx', cxx,
-		'--output', output, '--record', right]
+	cli_args := ['--generation', 'v1', '--linkage', 'dynamic', '--mode', 'dev', '--lane',
+		'ucrt64-gcc', '--log', left, '--cc', cc, '--cxx', cxx, '--output', output, '--record',
+		right]
 	parsed := parse_config(cli_args)!
 	self_expect(parsed.output == output && parsed.cc == cc, 'verifier flag values')!
 	mut with_executable := ['helper.exe']
@@ -918,7 +921,8 @@ fn run_selftest() ! {
 					fields := decoded as map[string]json2.Any
 					self_expect(fields.len == 9, 'nine JSON fields')!
 					for name in ['driver', 'driver_basename', 'expanded_argv', 'generation',
-						'link_output_token', 'linkage', 'output_basename', 'response_path', 'transport'] {
+						'link_output_token', 'linkage', 'output_basename', 'response_path',
+						'transport'] {
 						self_expect(name in fields, 'record key ${name}')!
 					}
 				}
@@ -929,12 +933,12 @@ fn run_selftest() ! {
 	v3 := self_config('v3', 'dynamic', 'dev', 'clang64-clang', cc, cxx, output)
 	static_cfg := self_config('v1', 'static', 'dev', 'ucrt64-gcc', cc, cxx, output)
 	good := self_command('v1', cc, 'input.c -o "${output}"')
-	good_static := self_command('v1', cxx, 'input.c -o "${output}"'
-		+ ' -DGLIB_STATIC_COMPILATION -DGOBJECT_STATIC_COMPILATION -static -lintl -liconv')
+	good_static := self_command('v1', cxx, 'input.c -o "${output}"' +
+		' -DGLIB_STATIC_COMPILATION -DGOBJECT_STATIC_COMPILATION -static -lintl -liconv')
 	expect_verify_error('', v1, 'cardinality')!
 	expect_verify_error(good + '\n' + good, v1, 'cardinality')!
-	expect_verify_error(good + '\n' + self_command('v1', cc, 'other.o -o other.exe'),
-		v1, 'not the last')!
+	expect_verify_error(good + '\n' + self_command('v1', cc, 'other.o -o other.exe'), v1,
+		'not the last')!
 	expect_verify_error(self_command('v1', cc, '-o "${output}"'), v1, 'no C source or object')!
 	expect_verify_error(good + ' -o other.exe', v1, 'one -o')!
 	expect_verify_error(good + ' -lstdc++', v1, 'runtime flag')!
@@ -947,30 +951,28 @@ fn run_selftest() ! {
 	expect_verify_error(good_static + ' -D GLIB_STATIC_COMPILATION=1', static_cfg, 'assigned value')!
 	expect_verify_error(good_static + ' -D', static_cfg, 'dangling')!
 	expect_verify_error(good_static + ' -static', static_cfg, 'exactly one -static')!
-	expect_verify_error(good_static.replace('-lintl -liconv', '-liconv -lintl'),
-		static_cfg, 'after every -lintl')!
+	expect_verify_error(good_static.replace('-lintl -liconv', '-liconv -lintl'), static_cfg,
+		'after every -lintl')!
 	expect_verify_error(good_static.replace(' -lintl', ''), static_cfg, 'at least one -lintl')!
 	expect_verify_error(good_static.replace(' -liconv', ''), static_cfg, 'exactly one -liconv')!
 	expect_verify_error(good_static + ' -liconv', static_cfg, 'exactly one -liconv')!
-	expect_verify_error(self_command('v3', cc, 'input.c -c -fuse-ld=lld -o input.o') + '\n'
-		+ self_command('v3', cc, 'input.o -o out'), v3, 'compile-only')!
-	expect_verify_error(self_command('v3', cc, 'input.o -o out -fuse-ld=lld'),
-		v3, 'LLD selection')!
+	expect_verify_error(self_command('v3', cc, 'input.c -c -fuse-ld=lld -o input.o') + '\n' +
+		self_command('v3', cc, 'input.o -o out'), v3, 'compile-only')!
+	expect_verify_error(self_command('v3', cc, 'input.o -o out -fuse-ld=lld'), v3, 'LLD selection')!
 	expect_verify_error(self_command('v1', cxx, 'input.c -o "${output}"'), v1, 'driver mismatch')!
 
 	rsp := os.join_path(root, 'response file.rsp')
-	v1_response := self_command('v1', cc, '@"${rsp}"') + '\n'
-		+ '> C compiler response file "${rsp}":\ninput.c -o "${output}"'
+	v1_response := self_command('v1', cc, '@"${rsp}"') + '\n' +
+		'> C compiler response file "${rsp}":\ninput.c -o "${output}"'
 	record_v1 := verify_content(v1_response, v1)!
 	self_expect(record_v1.transport == 'response', 'V1 response expansion')!
-	v3_response := self_command('v3', cc, '@"${rsp}"') + '\n'
-		+ '  > C++ linker response file "${rsp}":\n"input.o"\n"-o"\n"out"'
+	v3_response := self_command('v3', cc, '@"${rsp}"') + '\n' +
+		'  > C++ linker response file "${rsp}":\n"input.o"\n"-o"\n"out"'
 	record_v3 := verify_content(v3_response, v3)!
 	self_expect(record_v3.transport == 'response', 'V3 response expansion')!
-	expect_verify_error(v1_response.replace('@"${rsp}"', '@"${rsp}" -static'),
-		v1, 'external argv')!
-	expect_verify_error(v1_response + '\n> C compiler response file "${rsp}":\ninput.o',
-		v1, 'response header/path cardinality')!
+	expect_verify_error(v1_response.replace('@"${rsp}"', '@"${rsp}" -static'), v1, 'external argv')!
+	expect_verify_error(v1_response + '\n> C compiler response file "${rsp}":\ninput.o', v1,
+		'response header/path cardinality')!
 	expect_verify_error(self_command('v1', cc, '@"${rsp}"'), v1, 'response header/path cardinality')!
 	expect_verify_error('> C compiler response file "${rsp}":', v1, 'no payload')!
 	expect_verify_error('  > C++ linker response file "${rsp}":', v3, 'no payload')!
@@ -983,13 +985,13 @@ fn run_selftest() ! {
 	unicode_record := LinkRecord{
 		output_basename: 'texte "é😀"\\fin'
 	}
-	self_expect(output_basename_from_json(record_json(unicode_record))! ==
-		unicode_record.output_basename, 'JSON unicode, quotes and backslash roundtrip')!
+	self_expect(output_basename_from_json(record_json(unicode_record))! == unicode_record.output_basename,
+		'JSON unicode, quotes and backslash roundtrip')!
 	check_output_values(['{"output_basename":"dev"}', '{"output_basename":"dev"}'])!
 	expect_group_error(['{"output_basename":"dev"}', '{"output_basename":"other"}'])!
 	expect_group_error(['{"output_basename":"dev"}', '{}'])!
-	dev := ['dynamic-dev-cold', 'dynamic-dev-warm', 'static-dev-cold',
-		'static-dev-warm', 'dynamic-dev-again']
+	dev := ['dynamic-dev-cold', 'dynamic-dev-warm', 'static-dev-cold', 'static-dev-warm',
+		'dynamic-dev-again']
 	prod := ['dynamic-prod', 'static-prod']
 	for generation in ['v1', 'v3'] {
 		for group in [dev, prod] {
